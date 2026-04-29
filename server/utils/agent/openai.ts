@@ -15,15 +15,18 @@ type DecideInput = {
 
 export async function decideNextAction(input: DecideInput): Promise<AgentDecision> {
   const config = useRuntimeConfig()
-  if (!config.openaiApiKey) {
+  const apiKey = config.openaiApiKey || process.env.OPENAI_API_KEY
+  const model = config.openaiModel || process.env.OPENAI_MODEL || 'gpt-5.4-mini'
+
+  if (!apiKey) {
     throw createError({ statusCode: 500, statusMessage: 'OPENAI_API_KEY is not configured' })
   }
 
-  const client = new OpenAI({ apiKey: config.openaiApiKey })
+  const client = new OpenAI({ apiKey })
   const screenshotDataUrl = `data:image/png;base64,${input.screenshot.toString('base64')}`
 
   const response = await client.responses.create({
-    model: config.openaiModel,
+    model,
     instructions: [
       'You are Ghost Customer, an AI QA/customer-simulation agent.',
       'Use the screenshot and element inventory to choose the next Playwright action toward the user goal.',

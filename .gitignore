@@ -25,3 +25,6 @@ logs
 
 # VSC
 .history
+
+# Supabase local CLI state
+/supabase/.temp/

@@ -333,7 +333,7 @@ function fallbackLocator(page: Page, description: string) {
 
 async function uploadScreenshot(client: ReturnType<typeof createServiceSupabaseClient>, runId: string, stepNumber: number, screenshot: Buffer) {
   const config = useRuntimeConfig()
-  const bucket = config.screenshotBucket
+  const bucket = config.screenshotBucket || process.env.SCREENSHOT_BUCKET || 'qa-screenshots'
   const path = `${runId}/step-${String(stepNumber).padStart(3, '0')}.png`
   const { error } = await client.storage.from(bucket).upload(path, screenshot, {
     contentType: 'image/png',

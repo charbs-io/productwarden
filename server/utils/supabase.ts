@@ -37,15 +37,16 @@ export function createEventSupabaseClient(event: H3Event) {
 
 export function createServiceSupabaseClient(event?: H3Event) {
   const config = event ? useRuntimeConfig(event) : useRuntimeConfig()
+  const serviceRoleKey = config.supabaseServiceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY
 
-  if (!config.public.supabaseUrl || !config.supabaseServiceRoleKey) {
+  if (!config.public.supabaseUrl || !serviceRoleKey) {
     throw createError({
       statusCode: 500,
       statusMessage: 'Supabase service role is not configured'
     })
   }
 
-  return createClient(config.public.supabaseUrl, config.supabaseServiceRoleKey, {
+  return createClient(config.public.supabaseUrl, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false
