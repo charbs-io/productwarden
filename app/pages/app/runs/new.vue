@@ -58,7 +58,7 @@ async function startRun() {
       }
     })
 
-    await router.push(`/runs/${response.id}`)
+    await router.push(`/app/runs/${response.id}`)
   } catch (error: unknown) {
     toast.add({ title: 'Run could not start', description: getErrorMessage(error), color: 'error' })
   } finally {
@@ -186,7 +186,7 @@ function getErrorMessage(error: unknown) {
             />
             <UButton
               v-if="!verifiedSites.length"
-              to="/sites/new"
+              to="/app/sites/new"
               color="neutral"
               variant="outline"
               icon="i-lucide-plus"

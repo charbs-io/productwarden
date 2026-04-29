@@ -41,7 +41,7 @@ const columns: TableColumn<Site>[] = [{
     <template #header>
       <UDashboardNavbar title="Sites">
         <template #right>
-          <UButton to="/sites/new" icon="i-lucide-plus" label="Add site" />
+          <UButton to="/app/sites/new" icon="i-lucide-plus" label="Add site" />
         </template>
       </UDashboardNavbar>
     </template>
@@ -83,7 +83,7 @@ const columns: TableColumn<Site>[] = [{
 
           <template #actions-cell="{ row }">
             <UButton
-              :to="`/sites/${row.original.id}`"
+              :to="`/app/sites/${row.original.id}`"
               color="neutral"
               variant="ghost"
               size="sm"

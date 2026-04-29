@@ -8,28 +8,28 @@ const open = ref(false)
 const links = [[{
   label: 'Overview',
   icon: 'i-lucide-layout-dashboard',
-  to: '/',
+  to: '/app',
   onSelect: () => {
     open.value = false
   }
 }, {
   label: 'Sites',
   icon: 'i-lucide-panels-top-left',
-  to: '/sites',
+  to: '/app/sites',
   onSelect: () => {
     open.value = false
   }
 }, {
   label: 'Runs',
   icon: 'i-lucide-list-checks',
-  to: '/runs',
+  to: '/app/runs',
   onSelect: () => {
     open.value = false
   }
 }], [{
   label: 'Setup',
   icon: 'i-lucide-book-open-check',
-  to: '/setup'
+  to: '/app/setup'
 }]] satisfies NavigationMenuItem[][]
 
 const groups = computed(() => [{
@@ -43,12 +43,12 @@ const groups = computed(() => [{
     id: 'new-run',
     label: 'Start a QA run',
     icon: 'i-lucide-play',
-    to: '/runs/new'
+    to: '/app/runs/new'
   }, {
     id: 'add-site',
     label: 'Add a site',
     icon: 'i-lucide-shield-check',
-    to: '/sites/new'
+    to: '/app/sites/new'
   }]
 }])
 </script>

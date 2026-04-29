@@ -16,7 +16,7 @@ const latestRun = computed(() => runs.value[0])
     <template #header>
       <UDashboardNavbar title="Overview">
         <template #right>
-          <UButton to="/sites/new" icon="i-lucide-plus" label="Add site" />
+          <UButton to="/app/sites/new" icon="i-lucide-plus" label="Add site" />
         </template>
       </UDashboardNavbar>
     </template>
@@ -42,7 +42,7 @@ const latestRun = computed(() => runs.value[0])
               </p>
             </div>
             <UButton
-              to="/sites/new"
+              to="/app/sites/new"
               icon="i-lucide-arrow-right"
               label="Create site"
               block
@@ -98,7 +98,7 @@ const latestRun = computed(() => runs.value[0])
                   Sites
                 </h2>
                 <UButton
-                  to="/sites"
+                  to="/app/sites"
                   color="neutral"
                   variant="outline"
                   size="sm"
@@ -111,7 +111,7 @@ const latestRun = computed(() => runs.value[0])
               <NuxtLink
                 v-for="site in sites.slice(0, 6)"
                 :key="site.id"
-                :to="`/sites/${site.id}`"
+                :to="`/app/sites/${site.id}`"
                 class="rounded-lg border border-default p-3 hover:bg-elevated/50"
               >
                 <div class="flex items-start justify-between gap-3">
@@ -155,7 +155,7 @@ const latestRun = computed(() => runs.value[0])
                   {{ latestRun.goal }}
                 </p>
                 <UButton
-                  :to="`/runs/${latestRun.id}`"
+                  :to="`/app/runs/${latestRun.id}`"
                   color="neutral"
                   variant="outline"
                   label="Open run"
