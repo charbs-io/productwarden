@@ -1,11 +1,11 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { chromium, type Page, type Video } from 'playwright'
+import { chromium, type Page, type Request, type Video } from 'playwright'
 import { createError } from 'h3'
 import { createServiceSupabaseClient } from '../supabase'
 import { assertHostnameCovered, assertPublicHostname, normalizeTargetUrl } from '../security'
-import { generateMarkdownReport } from '../report'
+import { generateOverarchingMarkdownReport, generatePersonaMarkdownReport } from '../report'
 import { decideNextAction } from './openai'
 import type { AgentDecision, ElementInventoryItem } from '../agent-types'
 import type { GithubRepositoryContext } from '../github-context'
@@ -22,6 +22,7 @@ type StartRunInput = {
   persona: string
   goal: string
   maxSteps: number
+  personas: RunPersonaInput[]
   verifiedHostnames: string[]
   credentials: RunCredentials
   githubContext?: GithubRepositoryContext | null
@@ -29,6 +30,48 @@ type StartRunInput = {
     apiKey: string
     model: string
   }
+}
+
+type RunPersonaInput = {
+  id: string
+  personaTemplateId: string | null
+  position: number
+  name: string
+  role: string
+  responsibilities: string[]
+  reportFocus: string[]
+  goal: string
+}
+
+type RuntimeDiagnostics = {
+  page_load_ms: number | null
+  dom_content_loaded_ms: number | null
+  recent_requests: Array<{
+    url: string
+    method: string
+    resource_type: string
+    status: number | null
+    duration_ms: number
+  }>
+  slow_requests: Array<{
+    url: string
+    method: string
+    resource_type: string
+    status: number | null
+    duration_ms: number
+  }>
+  console_messages: Array<{
+    type: string
+    text: string
+  }>
+  page_errors: string[]
+}
+
+type DiagnosticsRecorder = {
+  requestStartedAt: Map<Request, number>
+  requests: RuntimeDiagnostics['recent_requests']
+  consoleMessages: RuntimeDiagnostics['console_messages']
+  pageErrors: string[]
 }
 
 type ActiveRun = {
@@ -98,10 +141,98 @@ async function runQa(input: StartRunInput, signal: AbortSignal) {
     return
   }
 
+  for (const persona of input.personas) {
+    if (await shouldStopRun(client, input, signal)) {
+      await cancelQueuedPersonas(client, input)
+      return
+    }
+
+    await runPersonaQa({
+      client,
+      input,
+      persona,
+      target,
+      openai,
+      signal
+    })
+  }
+
+  const { data: run } = await client
+    .from('qa_runs')
+    .select('*')
+    .eq('id', input.runId)
+    .eq('user_id', input.userId)
+    .single()
+
+  const { data: issues } = await client
+    .from('qa_issues')
+    .select('*')
+    .eq('run_id', input.runId)
+    .eq('user_id', input.userId)
+    .order('created_at', { ascending: true })
+
+  if (!run) {
+    throw createError({ statusCode: 500, statusMessage: 'Run disappeared during execution' })
+  }
+
+  const { data: personas } = await client
+    .from('qa_run_personas')
+    .select('*')
+    .eq('run_id', input.runId)
+    .eq('user_id', input.userId)
+    .order('position', { ascending: true })
+
+  const personaRows = personas || []
+  const completedCount = personaRows.filter(persona => persona.status === 'completed').length
+  const finalResult = completedCount === personaRows.length
+    ? 'completed'
+    : completedCount > 0 ? 'partially_completed' : 'blocked'
+  const finalStatus = finalResult === 'completed' ? 'completed' : 'blocked'
+  const report = generateOverarchingMarkdownReport({
+    ...run,
+    status: finalStatus,
+    result: finalResult
+  }, personaRows, issues || [])
+
+  await client
+    .from('qa_runs')
+    .update({
+      status: finalStatus,
+      result: finalResult,
+      issue_count: issues?.length || 0,
+      report_md: report,
+      completed_at: new Date().toISOString()
+    })
+    .eq('id', input.runId)
+    .eq('user_id', input.userId)
+    .eq('status', 'running')
+}
+
+async function runPersonaQa(args: {
+  client: ReturnType<typeof createServiceSupabaseClient>
+  input: StartRunInput
+  persona: RunPersonaInput
+  target: URL
+  openai: StartRunInput['openai']
+  signal: AbortSignal
+}) {
+  const { client, input, persona, target, openai, signal } = args
+  const now = new Date().toISOString()
+  const { error: startError } = await client
+    .from('qa_run_personas')
+    .update({ status: 'running', started_at: now, error: null })
+    .eq('id', persona.id)
+    .eq('run_id', input.runId)
+    .eq('user_id', input.userId)
+    .in('status', ['queued', 'running'])
+
+  if (startError) {
+    throw createError({ statusCode: 500, statusMessage: startError.message })
+  }
+
   const browser = await chromium.launch({
     headless: true
   })
-
   const videoDir = await mkdtemp(join(tmpdir(), 'productwarden-video-'))
   const context = await browser.newContext({
     viewport: { width: 1440, height: 960 },
@@ -114,6 +245,7 @@ async function runQa(input: StartRunInput, signal: AbortSignal) {
   })
 
   const page = await context.newPage()
+  const diagnostics = attachDiagnostics(page)
   const video = page.video()
   const history: Array<{ step: number, observation: string, action: Record<string, unknown> }> = []
   let finalStatus: 'completed' | 'blocked' = 'blocked'
@@ -124,6 +256,7 @@ async function runQa(input: StartRunInput, signal: AbortSignal) {
 
     for (let stepNumber = 1; stepNumber <= input.maxSteps; stepNumber++) {
       if (await shouldStopRun(client, input, signal)) {
+        await markPersonaCancelled(client, input, persona)
         return
       }
 
@@ -133,37 +266,46 @@ async function runQa(input: StartRunInput, signal: AbortSignal) {
 
       const elements = await collectElementInventory(page)
       const screenshot = await page.screenshot({ type: 'png', fullPage: false })
-      const screenshotPath = await uploadScreenshot(client, input.runId, stepNumber, screenshot)
+      const screenshotPath = await uploadScreenshot(client, input.runId, persona.id, stepNumber, screenshot)
+      const runtimeDiagnostics = await readRuntimeDiagnostics(page, diagnostics)
 
       if (await shouldStopRun(client, input, signal)) {
+        await markPersonaCancelled(client, input, persona)
         return
       }
 
       const decision = await decideNextAction({
-        persona: input.persona,
-        goal: input.goal,
+        persona: describePersona(persona),
+        goal: persona.goal,
         currentUrl: page.url(),
         stepNumber,
         history,
         elements,
         screenshot,
+        diagnostics: runtimeDiagnostics,
         credentialFields: credentialFields(input.credentials),
         githubContext: input.githubContext,
         openai
       })
 
       if (await shouldStopRun(client, input, signal)) {
+        await markPersonaCancelled(client, input, persona)
         return
       }
 
-      const actionResult = await executeAction(page, decision, input.credentials)
+      const actionResult = {
+        ...await executeAction(page, decision, input.credentials),
+        diagnostics: runtimeDiagnostics
+      }
 
       if (await shouldStopRun(client, input, signal)) {
+        await markPersonaCancelled(client, input, persona)
         return
       }
 
       await insertStep(client, {
         runId: input.runId,
+        personaRunId: persona.id,
         userId: input.userId,
         stepNumber,
         url: page.url(),
@@ -174,6 +316,7 @@ async function runQa(input: StartRunInput, signal: AbortSignal) {
 
       await insertIssues(client, {
         runId: input.runId,
+        personaRunId: persona.id,
         userId: input.userId,
         stepNumber,
         screenshotPath,
@@ -198,15 +341,16 @@ async function runQa(input: StartRunInput, signal: AbortSignal) {
     }
   } finally {
     await context.close().catch(() => undefined)
-    videoPath = await uploadRunVideo(client, input.runId, video).catch(() => null)
+    videoPath = await uploadRunVideo(client, input.runId, persona.id, video).catch(() => null)
     if (videoPath) {
-      await saveRunVideoPath(client, input.runId, input.userId, videoPath).catch(() => undefined)
+      await savePersonaVideoPath(client, persona.id, input.userId, videoPath).catch(() => undefined)
     }
     await browser.close()
     await rm(videoDir, { recursive: true, force: true }).catch(() => undefined)
   }
 
   if (await shouldStopRun(client, input, signal)) {
+    await markPersonaCancelled(client, input, persona)
     return
   }
 
@@ -221,6 +365,7 @@ async function runQa(input: StartRunInput, signal: AbortSignal) {
     .from('qa_steps')
     .select('*')
     .eq('run_id', input.runId)
+    .eq('persona_run_id', persona.id)
     .eq('user_id', input.userId)
     .order('step_number', { ascending: true })
 
@@ -228,6 +373,7 @@ async function runQa(input: StartRunInput, signal: AbortSignal) {
     .from('qa_issues')
     .select('*')
     .eq('run_id', input.runId)
+    .eq('persona_run_id', persona.id)
     .eq('user_id', input.userId)
     .order('created_at', { ascending: true })
 
@@ -235,19 +381,29 @@ async function runQa(input: StartRunInput, signal: AbortSignal) {
     throw createError({ statusCode: 500, statusMessage: 'Run disappeared during execution' })
   }
 
-  const report = generateMarkdownReport(run, steps || [], issues || [])
+  const report = generatePersonaMarkdownReport(run, {
+    name: persona.name,
+    role: persona.role,
+    responsibilities: persona.responsibilities,
+    report_focus: persona.reportFocus,
+    goal: persona.goal,
+    status: finalStatus,
+    result: finalStatus,
+    issue_count: issues?.length || 0
+  }, steps || [], issues || [])
 
   await client
-    .from('qa_runs')
+    .from('qa_run_personas')
     .update({
-      status: finalStatus === 'completed' ? 'completed' : 'blocked',
+      status: finalStatus,
       result: finalStatus,
       issue_count: issues?.length || 0,
       video_path: videoPath,
       report_md: report,
       completed_at: new Date().toISOString()
     })
-    .eq('id', input.runId)
+    .eq('id', persona.id)
+    .eq('run_id', input.runId)
     .eq('user_id', input.userId)
     .eq('status', 'running')
 }
@@ -265,6 +421,128 @@ async function isRunCancelled(client: ReturnType<typeof createServiceSupabaseCli
     .single()
 
   return data?.status === 'cancelled'
+}
+
+async function cancelQueuedPersonas(client: ReturnType<typeof createServiceSupabaseClient>, input: StartRunInput) {
+  await client
+    .from('qa_run_personas')
+    .update({ status: 'cancelled', completed_at: new Date().toISOString() })
+    .eq('run_id', input.runId)
+    .eq('user_id', input.userId)
+    .in('status', ['queued', 'running'])
+}
+
+async function markPersonaCancelled(client: ReturnType<typeof createServiceSupabaseClient>, input: StartRunInput, persona: RunPersonaInput) {
+  await client
+    .from('qa_run_personas')
+    .update({ status: 'cancelled', completed_at: new Date().toISOString() })
+    .eq('id', persona.id)
+    .eq('run_id', input.runId)
+    .eq('user_id', input.userId)
+    .in('status', ['queued', 'running'])
+}
+
+function attachDiagnostics(page: Page): DiagnosticsRecorder {
+  const recorder: DiagnosticsRecorder = {
+    requestStartedAt: new Map(),
+    requests: [],
+    consoleMessages: [],
+    pageErrors: []
+  }
+
+  page.on('request', (request) => {
+    recorder.requestStartedAt.set(request, Date.now())
+  })
+
+  page.on('response', (response) => {
+    const request = response.request()
+    const startedAt = recorder.requestStartedAt.get(request) || Date.now()
+    recorder.requests.push({
+      url: trimUrl(request.url()),
+      method: request.method(),
+      resource_type: request.resourceType(),
+      status: response.status(),
+      duration_ms: Date.now() - startedAt
+    })
+    recorder.requestStartedAt.delete(request)
+    trimDiagnostics(recorder)
+  })
+
+  page.on('requestfailed', (request) => {
+    const startedAt = recorder.requestStartedAt.get(request) || Date.now()
+    recorder.requests.push({
+      url: trimUrl(request.url()),
+      method: request.method(),
+      resource_type: request.resourceType(),
+      status: null,
+      duration_ms: Date.now() - startedAt
+    })
+    recorder.requestStartedAt.delete(request)
+    trimDiagnostics(recorder)
+  })
+
+  page.on('console', (message) => {
+    recorder.consoleMessages.push({
+      type: message.type(),
+      text: message.text().slice(0, 500)
+    })
+    trimDiagnostics(recorder)
+  })
+
+  page.on('pageerror', (error) => {
+    recorder.pageErrors.push(error.message.slice(0, 500))
+    trimDiagnostics(recorder)
+  })
+
+  return recorder
+}
+
+async function readRuntimeDiagnostics(page: Page, recorder: DiagnosticsRecorder): Promise<RuntimeDiagnostics> {
+  const timing = await page.evaluate(() => {
+    const nav = performance.getEntriesByType('navigation')[0] as {
+      loadEventEnd?: number
+      domContentLoadedEventEnd?: number
+    } | undefined
+
+    return {
+      page_load_ms: nav?.loadEventEnd ? Math.round(nav.loadEventEnd) : null,
+      dom_content_loaded_ms: nav?.domContentLoadedEventEnd ? Math.round(nav.domContentLoadedEventEnd) : null
+    }
+  }).catch(() => ({
+    page_load_ms: null,
+    dom_content_loaded_ms: null
+  }))
+  const recentRequests = recorder.requests.slice(-20)
+
+  return {
+    page_load_ms: timing.page_load_ms,
+    dom_content_loaded_ms: timing.dom_content_loaded_ms,
+    recent_requests: recentRequests,
+    slow_requests: recorder.requests
+      .filter(request => request.duration_ms >= 750 || (request.status !== null && request.status >= 400))
+      .slice(-12),
+    console_messages: recorder.consoleMessages.slice(-12),
+    page_errors: recorder.pageErrors.slice(-8)
+  }
+}
+
+function describePersona(persona: RunPersonaInput) {
+  return [
+    `Name: ${persona.name}`,
+    `Role: ${persona.role}`,
+    `Responsibilities:\n${persona.responsibilities.map(item => `- ${item}`).join('\n')}`,
+    `Report focus:\n${persona.reportFocus.map(item => `- ${item}`).join('\n')}`
+  ].join('\n\n')
+}
+
+function trimDiagnostics(recorder: DiagnosticsRecorder) {
+  recorder.requests.splice(0, Math.max(0, recorder.requests.length - 80))
+  recorder.consoleMessages.splice(0, Math.max(0, recorder.consoleMessages.length - 40))
+  recorder.pageErrors.splice(0, Math.max(0, recorder.pageErrors.length - 20))
+}
+
+function trimUrl(url: string) {
+  return url.length > 240 ? `${url.slice(0, 237)}...` : url
 }
 
 async function collectElementInventory(page: Page): Promise<ElementInventoryItem[]> {
@@ -421,10 +699,10 @@ function fallbackLocator(page: Page, description: string) {
     .first()
 }
 
-async function uploadScreenshot(client: ReturnType<typeof createServiceSupabaseClient>, runId: string, stepNumber: number, screenshot: Buffer) {
+async function uploadScreenshot(client: ReturnType<typeof createServiceSupabaseClient>, runId: string, personaRunId: string, stepNumber: number, screenshot: Buffer) {
   const config = useRuntimeConfig()
   const bucket = config.screenshotBucket || process.env.SCREENSHOT_BUCKET || 'qa-screenshots'
-  const path = `${runId}/step-${String(stepNumber).padStart(3, '0')}.png`
+  const path = `${runId}/${personaRunId}/step-${String(stepNumber).padStart(3, '0')}.png`
   const { error } = await client.storage.from(bucket).upload(path, screenshot, {
     contentType: 'image/png',
     upsert: true
@@ -437,7 +715,7 @@ async function uploadScreenshot(client: ReturnType<typeof createServiceSupabaseC
   return path
 }
 
-async function uploadRunVideo(client: ReturnType<typeof createServiceSupabaseClient>, runId: string, video: Video | null) {
+async function uploadRunVideo(client: ReturnType<typeof createServiceSupabaseClient>, runId: string, personaRunId: string, video: Video | null) {
   if (!video) {
     return null
   }
@@ -446,7 +724,7 @@ async function uploadRunVideo(client: ReturnType<typeof createServiceSupabaseCli
   const bucket = config.screenshotBucket || process.env.SCREENSHOT_BUCKET || 'qa-screenshots'
   const sourcePath = await video.path()
   const file = await readFile(sourcePath)
-  const path = `${runId}/run.webm`
+  const path = `${runId}/${personaRunId}/run.webm`
   const { error } = await client.storage.from(bucket).upload(path, file, {
     contentType: 'video/webm',
     upsert: true
@@ -459,16 +737,17 @@ async function uploadRunVideo(client: ReturnType<typeof createServiceSupabaseCli
   return path
 }
 
-async function saveRunVideoPath(client: ReturnType<typeof createServiceSupabaseClient>, runId: string, userId: string, videoPath: string) {
+async function savePersonaVideoPath(client: ReturnType<typeof createServiceSupabaseClient>, personaRunId: string, userId: string, videoPath: string) {
   await client
-    .from('qa_runs')
+    .from('qa_run_personas')
     .update({ video_path: videoPath })
-    .eq('id', runId)
+    .eq('id', personaRunId)
     .eq('user_id', userId)
 }
 
 async function insertStep(client: ReturnType<typeof createServiceSupabaseClient>, input: {
   runId: string
+  personaRunId: string
   userId: string
   stepNumber: number
   url: string
@@ -478,6 +757,7 @@ async function insertStep(client: ReturnType<typeof createServiceSupabaseClient>
 }) {
   await client.from('qa_steps').insert({
     run_id: input.runId,
+    persona_run_id: input.personaRunId,
     user_id: input.userId,
     step_number: input.stepNumber,
     url: input.url,
@@ -491,6 +771,7 @@ async function insertStep(client: ReturnType<typeof createServiceSupabaseClient>
 
 async function insertIssues(client: ReturnType<typeof createServiceSupabaseClient>, input: {
   runId: string
+  personaRunId: string
   userId: string
   stepNumber: number
   screenshotPath: string | null
@@ -502,6 +783,7 @@ async function insertIssues(client: ReturnType<typeof createServiceSupabaseClien
 
   await client.from('qa_issues').insert(input.decision.possible_issues.map(issue => ({
     run_id: input.runId,
+    persona_run_id: input.personaRunId,
     user_id: input.userId,
     step_number: input.stepNumber,
     category: issue.type,

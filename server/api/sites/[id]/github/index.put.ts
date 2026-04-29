@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
   const token = await createInstallationAccessToken(event, body.installationId, {
     repositoryIds: [body.repositoryId],
     permissions: {
-      contents: 'read',
+      contents: body.allowPrCreation ? 'write' : 'read',
       issues: body.allowIssueCreation ? 'write' : 'read',
       metadata: 'read',
       pull_requests: body.allowPrCreation ? 'write' : 'read'

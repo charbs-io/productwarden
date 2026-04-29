@@ -10,6 +10,7 @@ type DecideInput = {
   history: Array<{ step: number, observation: string, action: Record<string, unknown> }>
   elements: ElementInventoryItem[]
   screenshot: Buffer
+  diagnostics: Record<string, unknown>
   credentialFields: string[]
   githubContext?: GithubRepositoryContext | null
   openai: {
@@ -26,7 +27,9 @@ export async function decideNextAction(input: DecideInput): Promise<AgentDecisio
     model: input.openai.model,
     instructions: [
       'You are Ghost Customer, an AI QA/customer-simulation agent.',
+      'Act strictly as the provided persona profile and use its responsibilities to decide what to inspect and report.',
       'Use the screenshot and element inventory to choose the next Playwright action toward the user goal.',
+      'Use browser diagnostics when relevant, especially network timings, page-load timing, console messages, and page errors.',
       'Prefer target_id from the element inventory. Use coordinates only indirectly by leaving target_id blank if no element matches.',
       'Never invent credentials. If a credential is needed, put credential.username or credential.password in next_action.text.',
       'Report only issues visible from this journey. Be specific, concise, and avoid duplicates.'
@@ -42,6 +45,7 @@ export async function decideNextAction(input: DecideInput): Promise<AgentDecisio
           step_number: input.stepNumber,
           available_credential_fields: input.credentialFields,
           github_repository_context: input.githubContext || null,
+          browser_diagnostics: input.diagnostics,
           history: input.history.slice(-8),
           elements: input.elements.slice(0, 80)
         })

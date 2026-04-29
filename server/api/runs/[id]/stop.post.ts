@@ -47,6 +47,16 @@ export default defineEventHandler(async (event) => {
 
   const stoppedRun = stoppedRuns?.[0] || run
   if (stoppedRun.status === 'cancelled') {
+    await client
+      .from('qa_run_personas')
+      .update({
+        status: 'cancelled',
+        completed_at: new Date().toISOString()
+      })
+      .eq('run_id', id)
+      .eq('user_id', user.id)
+      .in('status', STOPPABLE_STATUSES)
+
     cancelQaRun(id)
   }
 

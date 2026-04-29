@@ -1,6 +1,6 @@
 export type AgentActionType = 'click' | 'type' | 'scroll' | 'wait' | 'navigate' | 'stop'
 
-export type AgentIssueCategory = 'bug' | 'ux' | 'accessibility' | 'copy' | 'navigation'
+export type AgentIssueCategory = 'bug' | 'ux' | 'accessibility' | 'copy' | 'navigation' | 'performance' | 'security' | 'reliability'
 
 export type AgentDecision = {
   observation: string
@@ -73,7 +73,7 @@ export const agentDecisionSchema = {
         additionalProperties: false,
         properties: {
           title: { type: 'string' },
-          type: { type: 'string', enum: ['bug', 'ux', 'accessibility', 'copy', 'navigation'] },
+          type: { type: 'string', enum: ['bug', 'ux', 'accessibility', 'copy', 'navigation', 'performance', 'security', 'reliability'] },
           severity: { type: 'string', enum: ['low', 'medium', 'high'] },
           description: { type: 'string' },
           evidence: { type: 'string' },

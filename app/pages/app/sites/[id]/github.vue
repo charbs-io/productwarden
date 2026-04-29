@@ -256,24 +256,24 @@ function getErrorMessage(error: unknown) {
           <UCard>
             <template #header>
               <h2 class="text-base font-semibold">
-                Coming next
+                Report actions
               </h2>
             </template>
             <div class="space-y-3">
               <UButton
                 icon="i-lucide-circle-dot"
                 label="Create GitHub issue from finding"
-                disabled
+                :disabled="!settings.allowIssueCreation"
                 block
               />
               <UButton
                 icon="i-lucide-git-pull-request"
                 label="Create autofix pull request"
-                disabled
+                :disabled="!settings.allowPrCreation"
                 block
               />
               <p class="text-sm text-muted">
-                The opt-ins above are stored now, but write actions stay disabled until the automation pipeline is implemented.
+                Enabled actions appear on run findings after a report is generated.
               </p>
             </div>
           </UCard>
