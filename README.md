@@ -13,10 +13,11 @@ User Zero is a Nuxt 4 and Nuxt UI app for AI-powered QA/customer simulation. Use
 
 ## Setup
 
-Install dependencies:
+Install dependencies and the Chromium browser used by the QA runner:
 
 ```bash
 pnpm install
+pnpm setup:browsers
 ```
 
 Copy `.env.example` to `.env` and set:
