@@ -25,8 +25,9 @@ export default defineEventHandler(async (event) => {
   }
 
   const config = useRuntimeConfig(event)
+  const bucket = config.screenshotBucket || process.env.SCREENSHOT_BUCKET || 'qa-screenshots'
   const { data, error } = await client.storage
-    .from(config.screenshotBucket)
+    .from(bucket)
     .createSignedUrl(path, 60)
 
   if (error || !data?.signedUrl) {
