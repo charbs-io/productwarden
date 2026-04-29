@@ -29,16 +29,26 @@ type StartRunInput = {
   }
 }
 
-const activeRuns = new Map<string, Promise<void>>()
+type ActiveRun = {
+  promise: Promise<void>
+  controller: AbortController
+}
+
+const activeRuns = new Map<string, ActiveRun>()
 
 export function startQaRun(input: StartRunInput) {
   if (activeRuns.has(input.runId)) {
     return
   }
 
-  const promise = runQa(input)
+  const controller = new AbortController()
+  const promise = runQa(input, controller.signal)
     .catch(async (error) => {
       const client = createServiceSupabaseClient()
+      if (await isRunCancelled(client, input)) {
+        return
+      }
+
       await client
         .from('qa_runs')
         .update({
@@ -48,26 +58,43 @@ export function startQaRun(input: StartRunInput) {
         })
         .eq('id', input.runId)
         .eq('user_id', input.userId)
+        .in('status', ['queued', 'running'])
     })
     .finally(() => {
       activeRuns.delete(input.runId)
     })
 
-  activeRuns.set(input.runId, promise)
+  activeRuns.set(input.runId, { promise, controller })
 }
 
-async function runQa(input: StartRunInput) {
+export function cancelQaRun(runId: string) {
+  const activeRun = activeRuns.get(runId)
+  activeRun?.controller.abort()
+  return Boolean(activeRun)
+}
+
+async function runQa(input: StartRunInput, signal: AbortSignal) {
   const client = createServiceSupabaseClient()
   const openai = input.openai
   const target = normalizeTargetUrl(input.targetUrl)
   assertHostnameCovered(target.hostname, input.verifiedDomains)
   await assertPublicHostname(target.hostname)
 
-  await client
+  const { data: startedRuns, error: startError } = await client
     .from('qa_runs')
     .update({ status: 'running', started_at: new Date().toISOString(), error: null })
     .eq('id', input.runId)
     .eq('user_id', input.userId)
+    .in('status', ['queued', 'running'])
+    .select('id')
+
+  if (startError) {
+    throw createError({ statusCode: 500, statusMessage: startError.message })
+  }
+
+  if (!startedRuns?.length || await shouldStopRun(client, input, signal)) {
+    return
+  }
 
   const browser = await chromium.launch({
     headless: true
@@ -94,6 +121,10 @@ async function runQa(input: StartRunInput) {
     await page.goto(target.toString(), { waitUntil: 'domcontentloaded', timeout: 30000 })
 
     for (let stepNumber = 1; stepNumber <= input.maxSteps; stepNumber++) {
+      if (await shouldStopRun(client, input, signal)) {
+        return
+      }
+
       const currentUrl = new URL(page.url())
       assertHostnameCovered(currentUrl.hostname, input.verifiedDomains)
       await assertPublicHostname(currentUrl.hostname)
@@ -101,6 +132,11 @@ async function runQa(input: StartRunInput) {
       const elements = await collectElementInventory(page)
       const screenshot = await page.screenshot({ type: 'png', fullPage: false })
       const screenshotPath = await uploadScreenshot(client, input.runId, stepNumber, screenshot)
+
+      if (await shouldStopRun(client, input, signal)) {
+        return
+      }
+
       const decision = await decideNextAction({
         persona: input.persona,
         goal: input.goal,
@@ -113,7 +149,15 @@ async function runQa(input: StartRunInput) {
         openai
       })
 
+      if (await shouldStopRun(client, input, signal)) {
+        return
+      }
+
       const actionResult = await executeAction(page, decision, input.credentials)
+
+      if (await shouldStopRun(client, input, signal)) {
+        return
+      }
 
       await insertStep(client, {
         runId: input.runId,
@@ -159,6 +203,10 @@ async function runQa(input: StartRunInput) {
     await rm(videoDir, { recursive: true, force: true }).catch(() => undefined)
   }
 
+  if (await shouldStopRun(client, input, signal)) {
+    return
+  }
+
   const { data: run } = await client
     .from('qa_runs')
     .select('*')
@@ -198,6 +246,22 @@ async function runQa(input: StartRunInput) {
     })
     .eq('id', input.runId)
     .eq('user_id', input.userId)
+    .eq('status', 'running')
+}
+
+async function shouldStopRun(client: ReturnType<typeof createServiceSupabaseClient>, input: StartRunInput, signal: AbortSignal) {
+  return signal.aborted || await isRunCancelled(client, input)
+}
+
+async function isRunCancelled(client: ReturnType<typeof createServiceSupabaseClient>, input: StartRunInput) {
+  const { data } = await client
+    .from('qa_runs')
+    .select('status')
+    .eq('id', input.runId)
+    .eq('user_id', input.userId)
+    .single()
+
+  return data?.status === 'cancelled'
 }
 
 async function collectElementInventory(page: Page): Promise<ElementInventoryItem[]> {
