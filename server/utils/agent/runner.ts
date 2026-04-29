@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { chromium, type Page, type Video } from 'playwright'
+import { chromium, type Locator, type Page, type Video } from 'playwright'
 import { createError } from 'h3'
 import { createServiceSupabaseClient } from '../supabase'
 import { assertHostnameCovered, assertPublicHostname, normalizeTargetUrl } from '../security'
@@ -11,6 +11,12 @@ import type { AgentDecision, ElementInventoryItem } from '../agent-types'
 import type { GithubRepositoryContext } from '../github-context'
 
 type RunCredentials = {
+  email: string
+  username: string
+  password: string
+}
+
+type RunCredentialInput = {
   username?: string
   password?: string
 }
@@ -23,7 +29,7 @@ type StartRunInput = {
   goal: string
   maxSteps: number
   verifiedHostnames: string[]
-  credentials: RunCredentials
+  credentials: RunCredentialInput
   githubContext?: GithubRepositoryContext | null
   openai: {
     apiKey: string
@@ -79,6 +85,7 @@ async function runQa(input: StartRunInput, signal: AbortSignal) {
   const client = createServiceSupabaseClient()
   const openai = input.openai
   const target = normalizeTargetUrl(input.targetUrl)
+  const credentials = createRunCredentials(input.runId, input.credentials)
   assertHostnameCovered(target.hostname, input.verifiedHostnames)
   await assertPublicHostname(target.hostname)
 
@@ -115,7 +122,12 @@ async function runQa(input: StartRunInput, signal: AbortSignal) {
 
   const page = await context.newPage()
   const video = page.video()
-  const history: Array<{ step: number, observation: string, action: Record<string, unknown> }> = []
+  const history: Array<{
+    step: number
+    observation: string
+    action: Record<string, unknown>
+    result: Record<string, unknown>
+  }> = []
   let finalStatus: 'completed' | 'blocked' = 'blocked'
   let videoPath: string | null = null
 
@@ -147,7 +159,7 @@ async function runQa(input: StartRunInput, signal: AbortSignal) {
         history,
         elements,
         screenshot,
-        credentialFields: credentialFields(input.credentials),
+        credentialFields: credentialFields(),
         githubContext: input.githubContext,
         openai
       })
@@ -156,7 +168,7 @@ async function runQa(input: StartRunInput, signal: AbortSignal) {
         return
       }
 
-      const actionResult = await executeAction(page, decision, input.credentials)
+      const actionResult = await executeAction(page, decision, credentials)
 
       if (await shouldStopRun(client, input, signal)) {
         return
@@ -183,7 +195,8 @@ async function runQa(input: StartRunInput, signal: AbortSignal) {
       history.push({
         step: stepNumber,
         observation: decision.observation,
-        action: sanitizeAction(decision.next_action)
+        action: sanitizeAction(decision.next_action),
+        result: actionResult
       })
 
       if (decision.goal_status === 'completed' || decision.next_action.type === 'stop') {
@@ -401,9 +414,9 @@ async function executeAction(page: Page, decision: AgentDecision, credentials: R
     }
 
     if (action.type === 'type') {
-      const text = substituteCredential(action.text, credentials)
-      await locator.fill(text, { timeout: 8000 })
-      return { ...result, status: 'ok', text: maskIfSecret(action.text) }
+      const text = await resolveActionText(locator, action, credentials)
+      await locator.fill(text.value, { timeout: 8000 })
+      return { ...result, status: 'ok', text: text.reportText }
     }
   } catch (error: unknown) {
     return { ...result, status: 'error', error: error instanceof Error ? error.message : 'Action failed' }
@@ -514,26 +527,123 @@ async function insertIssues(client: ReturnType<typeof createServiceSupabaseClien
   })))
 }
 
-function credentialFields(credentials: RunCredentials) {
-  return Object.entries(credentials)
-    .filter(([, value]) => Boolean(value))
-    .map(([key]) => `credential.${key}`)
+function credentialFields() {
+  return [
+    'credential.email',
+    'credential.username',
+    'credential.password'
+  ]
 }
 
-function substituteCredential(text: string, credentials: RunCredentials) {
-  if (text === 'credential.username') {
-    return credentials.username || ''
+type ResolvedActionText = {
+  value: string
+  reportText: string
+}
+
+function substituteCredential(text: string, credentials: RunCredentials): ResolvedActionText | null {
+  const placeholder = text.trim()
+
+  if (placeholder === 'credential.email') {
+    return { value: credentials.email, reportText: placeholder }
   }
 
-  if (text === 'credential.password') {
-    return credentials.password || ''
+  if (placeholder === 'credential.username') {
+    return { value: credentials.username, reportText: placeholder }
   }
 
-  return text
+  if (placeholder === 'credential.password') {
+    return { value: credentials.password, reportText: placeholder }
+  }
+
+  return null
+}
+
+async function resolveActionText(locator: Locator, action: AgentDecision['next_action'], credentials: RunCredentials): Promise<ResolvedActionText> {
+  const substituted = substituteCredential(action.text, credentials)
+  if (substituted) {
+    return substituted
+  }
+
+  if (action.text.trim()) {
+    return { value: action.text, reportText: maskIfSecret(action.text) }
+  }
+
+  const inferred = await inferBlankActionText(locator, action.target_description, credentials).catch(() => null)
+  return inferred || { value: '', reportText: '' }
+}
+
+async function inferBlankActionText(locator: Locator, targetDescription: string, credentials: RunCredentials): Promise<ResolvedActionText | null> {
+  const elementDescription = await locator.evaluate((element) => {
+    type FormControlElement = {
+      getAttribute: (name: string) => string | null
+      labels?: Iterable<{ textContent: string | null }> | null
+    }
+
+    const control = element as unknown as FormControlElement
+    const labelText = control.labels
+      ? Array.from(control.labels).map(label => label.textContent || '').join(' ')
+      : ''
+
+    return [
+      control.getAttribute('type'),
+      control.getAttribute('autocomplete'),
+      control.getAttribute('name'),
+      control.getAttribute('id'),
+      control.getAttribute('placeholder'),
+      control.getAttribute('aria-label'),
+      control.getAttribute('data-testid'),
+      labelText
+    ].filter(Boolean).join(' ')
+  }, undefined, { timeout: 1000 })
+
+  const description = `${targetDescription} ${elementDescription}`.toLowerCase()
+
+  if (description.includes('password')) {
+    return { value: credentials.password, reportText: 'credential.password' }
+  }
+
+  if (description.includes('email') || description.includes('e-mail')) {
+    return { value: credentials.email, reportText: 'credential.email' }
+  }
+
+  if (description.includes('username') || description.includes('user name')) {
+    return { value: credentials.username, reportText: 'credential.username' }
+  }
+
+  if (description.includes('playlist')) {
+    return { value: 'QA Test Playlist', reportText: 'QA Test Playlist' }
+  }
+
+  if (description.includes('workspace') || description.includes('company') || description.includes('team') || description.includes('organization')) {
+    return { value: 'Product Warden Test Workspace', reportText: 'Product Warden Test Workspace' }
+  }
+
+  if (description.includes('full name') || description.includes('display name') || /\bname\b/.test(description)) {
+    return { value: 'Product Warden Test User', reportText: 'Product Warden Test User' }
+  }
+
+  return null
+}
+
+function createRunCredentials(runId: string, credentials: RunCredentialInput): RunCredentials {
+  const suffix = runId.replace(/-/g, '').slice(0, 12)
+  const providedUsername = credentials.username?.trim()
+  const providedPassword = credentials.password || ''
+  const generatedEmail = `productwarden-${suffix}@example.com`
+  const email = providedUsername?.includes('@') ? providedUsername : generatedEmail
+  const username = providedUsername || email
+  const password = providedPassword || `ProductWarden${suffix}A9!`
+
+  return {
+    email,
+    username,
+    password
+  }
 }
 
 function maskIfSecret(text: string) {
-  return text.startsWith('credential.') ? text : text
+  const placeholder = text.trim()
+  return placeholder.startsWith('credential.') ? placeholder : text
 }
 
 function sanitizeAction(action: AgentDecision['next_action']) {
