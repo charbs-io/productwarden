@@ -10,6 +10,11 @@ export interface VerifiedDomain {
   created_at: string
 }
 
+export interface OpenAISettingsStatus {
+  configured: boolean
+  updated_at: string | null
+}
+
 export interface QaRun {
   id: string
   target_url: string

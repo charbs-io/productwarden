@@ -20,6 +20,10 @@ type StartRunInput = {
   maxSteps: number
   verifiedDomains: string[]
   credentials: RunCredentials
+  openai: {
+    apiKey: string
+    model: string
+  }
 }
 
 const activeRuns = new Map<string, Promise<void>>()
@@ -51,6 +55,7 @@ export function startQaRun(input: StartRunInput) {
 
 async function runQa(input: StartRunInput) {
   const client = createServiceSupabaseClient()
+  const openai = input.openai
   const target = normalizeTargetUrl(input.targetUrl)
   assertHostnameCovered(target.hostname, input.verifiedDomains)
   await assertPublicHostname(target.hostname)
@@ -94,7 +99,8 @@ async function runQa(input: StartRunInput) {
         history,
         elements,
         screenshot,
-        credentialFields: credentialFields(input.credentials)
+        credentialFields: credentialFields(input.credentials),
+        openai
       })
 
       const actionResult = await executeAction(page, decision, input.credentials)
