@@ -213,11 +213,16 @@ function getErrorMessage(error: unknown) {
 
           <form class="space-y-4" @submit.prevent="saveTemplate">
             <UFormField label="Name" name="name" required>
-              <UInput v-model="form.name" required placeholder="Accessibility reviewer" />
+              <UInput
+                v-model="form.name"
+                required
+                placeholder="Accessibility reviewer"
+                class="w-full"
+              />
             </UFormField>
 
             <UFormField label="Description" name="description">
-              <UInput v-model="form.description" placeholder="Short summary shown in run setup" />
+              <UInput v-model="form.description" placeholder="Short summary shown in run setup" class="w-full" />
             </UFormField>
 
             <UFormField label="Role" name="role" required>
@@ -226,6 +231,7 @@ function getErrorMessage(error: unknown) {
                 required
                 autoresize
                 placeholder="You are an accessibility reviewer checking keyboard, screen reader, and contrast issues."
+                class="w-full"
               />
             </UFormField>
 
@@ -235,6 +241,7 @@ function getErrorMessage(error: unknown) {
                 required
                 autoresize
                 placeholder="One responsibility per line"
+                class="w-full"
               />
             </UFormField>
 
@@ -244,6 +251,7 @@ function getErrorMessage(error: unknown) {
                 required
                 autoresize
                 placeholder="One report focus area per line"
+                class="w-full"
               />
             </UFormField>
 

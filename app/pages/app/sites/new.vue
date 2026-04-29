@@ -84,7 +84,12 @@ function getErrorMessage(error: unknown) {
 
             <form class="space-y-4" @submit.prevent="addSite">
               <UFormField label="Website URL" name="url" required>
-                <UInput v-model="url" placeholder="https://example.com" required />
+                <UInput
+                  v-model="url"
+                  placeholder="https://example.com"
+                  required
+                  class="w-full"
+                />
               </UFormField>
               <UButton
                 type="submit"

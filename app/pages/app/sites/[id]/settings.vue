@@ -47,16 +47,16 @@ function getErrorMessage(error: unknown) {
 
           <div class="grid gap-4 md:grid-cols-2">
             <UFormField label="Base URL">
-              <UInput :model-value="site?.base_url" readonly />
+              <UInput :model-value="site?.base_url" readonly class="w-full" />
             </UFormField>
             <UFormField label="Hostname">
-              <UInput :model-value="site?.hostname" readonly />
+              <UInput :model-value="site?.hostname" readonly class="w-full" />
             </UFormField>
             <UFormField label="Verification method">
-              <UInput :model-value="site?.verification_method || 'Not verified'" readonly />
+              <UInput :model-value="site?.verification_method || 'Not verified'" readonly class="w-full" />
             </UFormField>
             <UFormField label="Last checked">
-              <UInput :model-value="site?.last_checked_at ? new Date(site.last_checked_at).toLocaleString() : 'Never'" readonly />
+              <UInput :model-value="site?.last_checked_at ? new Date(site.last_checked_at).toLocaleString() : 'Never'" readonly class="w-full" />
             </UFormField>
           </div>
         </UCard>

@@ -213,6 +213,7 @@ function getErrorMessage(error: unknown) {
                 autoresize
                 placeholder="What changed, what risks should I review, or where should I test?"
                 :disabled="!selectedPull || !indexReady"
+                class="w-full"
               />
               <div class="flex justify-end">
                 <UButton

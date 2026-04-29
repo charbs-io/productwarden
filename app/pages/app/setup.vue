@@ -114,6 +114,7 @@ function getErrorMessage(error: unknown) {
                 autocomplete="off"
                 placeholder="sk-..."
                 required
+                class="w-full"
               />
             </UFormField>
 

@@ -117,7 +117,7 @@ function getErrorMessage(error: unknown) {
             </UFormField>
 
             <UFormField label="Start URL" name="url">
-              <UInput v-model="form.url" :placeholder="selectedSite?.base_url || 'https://app.example.com/signup'" />
+              <UInput v-model="form.url" :placeholder="selectedSite?.base_url || 'https://app.example.com/signup'" class="w-full" />
             </UFormField>
 
             <UFormField label="Personas" name="personaTemplateIds" required>
@@ -180,12 +180,18 @@ function getErrorMessage(error: unknown) {
                 placeholder="Sign up, create a workspace, invite a teammate, and upgrade plan"
                 required
                 autoresize
+                class="w-full"
               />
             </UFormField>
 
             <div class="grid gap-4 md:grid-cols-2">
               <UFormField label="Test email/username" name="username">
-                <UInput v-model="form.username" autocomplete="off" placeholder="Auto-generate if blank" />
+                <UInput
+                  v-model="form.username"
+                  autocomplete="off"
+                  placeholder="Auto-generate if blank"
+                  class="w-full"
+                />
               </UFormField>
 
               <UFormField label="Test password" name="password">
@@ -194,6 +200,7 @@ function getErrorMessage(error: unknown) {
                   type="password"
                   autocomplete="off"
                   placeholder="Auto-generate if blank"
+                  class="w-full"
                 />
               </UFormField>
             </div>
@@ -204,6 +211,7 @@ function getErrorMessage(error: unknown) {
                 type="number"
                 min="3"
                 max="40"
+                class="w-full"
               />
             </UFormField>
 
