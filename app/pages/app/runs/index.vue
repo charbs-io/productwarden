@@ -117,7 +117,7 @@ function getErrorMessage(error: unknown) {
                 @click="stopRun(row.original)"
               />
               <UButton
-                :to="`/runs/${row.original.id}`"
+                :to="`/app/runs/${row.original.id}`"
                 color="neutral"
                 variant="ghost"
                 size="sm"
