@@ -20,6 +20,13 @@ const links = [[{
     open.value = false
   }
 }, {
+  label: 'Personas',
+  icon: 'i-lucide-users-round',
+  to: '/app/personas',
+  onSelect: () => {
+    open.value = false
+  }
+}, {
   label: 'Runs',
   icon: 'i-lucide-list-checks',
   to: '/app/runs',

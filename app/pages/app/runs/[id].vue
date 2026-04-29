@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import type { QaIssue, QaRun, QaStep } from '~/types'
+import type { QaIssue, QaRun, QaRunPersona, QaStep } from '~/types'
 
 const route = useRoute()
 const toast = useToast()
 const stopPending = ref(false)
+const selectedPersonaId = ref('all')
 const creatingIssueId = ref<string | null>(null)
 const creatingPrId = ref<string | null>(null)
 const selectedScreenshot = ref<{ src: string, title: string, alt: string } | null>(null)
 
 const { data, refresh, pending } = await useFetch<{
   run: QaRun
+  personas: QaRunPersona[]
   steps: QaStep[]
   issues: QaIssue[]
   github: {
@@ -19,11 +21,23 @@ const { data, refresh, pending } = await useFetch<{
     repository_index_status: string
   } | null
 }>(() => `/api/runs/${route.params.id}`, {
-  default: () => ({ run: null as unknown as QaRun, steps: [], issues: [], github: null })
+  default: () => ({ run: null as unknown as QaRun, personas: [], steps: [], issues: [], github: null })
 })
 
 const terminal = computed(() => ['completed', 'blocked', 'failed', 'cancelled'].includes(data.value.run?.status))
 const canStop = computed(() => ['queued', 'running'].includes(data.value.run?.status))
+const selectedPersona = computed(() => data.value.personas.find(persona => persona.id === selectedPersonaId.value) || null)
+const personaNameById = computed(() => new Map(data.value.personas.map(persona => [persona.id, persona.name])))
+const visibleSteps = computed(() => selectedPersona.value
+  ? data.value.steps.filter(step => step.persona_run_id === selectedPersona.value?.id)
+  : data.value.steps)
+const visibleIssues = computed(() => selectedPersona.value
+  ? data.value.issues.filter(issue => issue.persona_run_id === selectedPersona.value?.id)
+  : data.value.issues)
+const visibleReport = computed(() => selectedPersona.value
+  ? selectedPersona.value.report_md
+  : data.value.run?.report_md)
+const visibleVideoUrl = computed(() => selectedPersona.value?.video_url || (!selectedPersona.value ? data.value.run?.video_url : null))
 const screenshotModalOpen = computed({
   get: () => Boolean(selectedScreenshot.value),
   set: (open) => {
@@ -39,7 +53,10 @@ useIntervalFn(() => {
   }
 }, 2000)
 
-const reportUrl = computed(() => `/api/runs/${route.params.id}/report`)
+const reportUrl = computed(() => {
+  const base = `/api/runs/${route.params.id}/report`
+  return selectedPersona.value ? `${base}?personaRunId=${selectedPersona.value.id}` : base
+})
 
 function statusColor(status: QaRun['status']) {
   switch (status) {
@@ -54,6 +71,22 @@ function statusColor(status: QaRun['status']) {
     default:
       return 'info'
   }
+}
+
+function issuePersonaName(issue: QaIssue) {
+  return issue.persona_run_id ? personaNameById.value.get(issue.persona_run_id) || 'Persona' : 'Run'
+}
+
+function canCreateGithubIssue(issue: QaIssue) {
+  return Boolean(data.value.github?.allow_issue_creation && !issue.github_issue_url)
+}
+
+function canCreateGithubPullRequest(issue: QaIssue) {
+  return Boolean(
+    data.value.github?.allow_pr_creation
+    && data.value.github.repository_index_status === 'ready'
+    && !issue.github_pr_url
+  )
 }
 
 function openScreenshot(step: QaStep) {
@@ -174,6 +207,14 @@ function getErrorMessage(error: unknown) {
             </UCard>
             <UCard>
               <p class="text-sm text-muted">
+                Personas
+              </p>
+              <p class="mt-2 text-2xl font-semibold">
+                {{ data.personas.length || 1 }}
+              </p>
+            </UCard>
+            <UCard>
+              <p class="text-sm text-muted">
                 Issues
               </p>
               <p class="mt-2 text-2xl font-semibold">
@@ -191,16 +232,40 @@ function getErrorMessage(error: unknown) {
             :description="data.run.error"
           />
 
+          <div class="flex flex-wrap gap-2">
+            <UButton
+              color="neutral"
+              :variant="selectedPersonaId === 'all' ? 'solid' : 'outline'"
+              icon="i-lucide-files"
+              label="Overarching report"
+              @click="selectedPersonaId = 'all'"
+            />
+            <UButton
+              v-for="persona in data.personas"
+              :key="persona.id"
+              color="neutral"
+              :variant="selectedPersonaId === persona.id ? 'solid' : 'outline'"
+              icon="i-lucide-user-round"
+              :label="persona.name"
+              @click="selectedPersonaId = persona.id"
+            />
+          </div>
+
           <div class="grid gap-4 xl:grid-cols-[1fr_420px]">
             <UCard>
               <template #header>
-                <h2 class="text-base font-semibold">
-                  Journey trace
-                </h2>
+                <div class="flex items-center justify-between gap-3">
+                  <h2 class="text-base font-semibold">
+                    Journey trace
+                  </h2>
+                  <UBadge v-if="selectedPersona" color="neutral" variant="subtle">
+                    {{ selectedPersona.status }}
+                  </UBadge>
+                </div>
               </template>
 
               <div class="space-y-4">
-                <div v-for="step in data.steps" :key="step.id" class="grid gap-3 rounded-lg border border-default p-3 md:grid-cols-[220px_1fr]">
+                <div v-for="step in visibleSteps" :key="step.id" class="grid gap-3 rounded-lg border border-default p-3 md:grid-cols-[220px_1fr]">
                   <button
                     v-if="step.screenshot_url"
                     type="button"
@@ -216,9 +281,14 @@ function getErrorMessage(error: unknown) {
 
                   <div class="min-w-0 space-y-2">
                     <div class="flex items-center justify-between gap-3">
-                      <p class="font-medium">
-                        Step {{ step.step_number }}
-                      </p>
+                      <div>
+                        <p class="font-medium">
+                          Step {{ step.step_number }}
+                        </p>
+                        <p v-if="!selectedPersona && step.persona_run_id" class="text-xs text-muted">
+                          {{ personaNameById.get(step.persona_run_id) }}
+                        </p>
+                      </div>
                       <UBadge color="neutral" variant="subtle">
                         {{ (step.action as any).type || 'observe' }}
                       </UBadge>
@@ -233,7 +303,7 @@ function getErrorMessage(error: unknown) {
                 </div>
 
                 <UAlert
-                  v-if="!data.steps.length"
+                  v-if="!visibleSteps.length"
                   icon="i-lucide-loader-circle"
                   color="neutral"
                   variant="subtle"
@@ -244,15 +314,15 @@ function getErrorMessage(error: unknown) {
             </UCard>
 
             <div class="space-y-4">
-              <UCard v-if="data.run.video_url">
+              <UCard v-if="visibleVideoUrl">
                 <template #header>
                   <h2 class="text-base font-semibold">
-                    Run video
+                    {{ selectedPersona ? `${selectedPersona.name} video` : 'Run video' }}
                   </h2>
                 </template>
 
                 <video
-                  :src="data.run.video_url"
+                  :src="visibleVideoUrl"
                   controls
                   preload="metadata"
                   class="aspect-video w-full rounded-md border border-default bg-black"
@@ -267,11 +337,16 @@ function getErrorMessage(error: unknown) {
                 </template>
 
                 <div class="space-y-3">
-                  <div v-for="issue in data.issues" :key="issue.id" class="rounded-lg border border-default p-3">
+                  <div v-for="issue in visibleIssues" :key="issue.id" class="rounded-lg border border-default p-3">
                     <div class="mb-2 flex items-center justify-between gap-3">
-                      <p class="text-sm font-medium">
-                        {{ issue.title }}
-                      </p>
+                      <div class="min-w-0">
+                        <p class="text-sm font-medium">
+                          {{ issue.title }}
+                        </p>
+                        <p class="text-xs text-muted">
+                          {{ issuePersonaName(issue) }} · {{ issue.category }}
+                        </p>
+                      </div>
                       <UBadge :color="issue.severity === 'high' ? 'error' : issue.severity === 'medium' ? 'warning' : 'neutral'" variant="subtle">
                         {{ issue.severity }}
                       </UBadge>
@@ -301,7 +376,7 @@ function getErrorMessage(error: unknown) {
                         icon="i-lucide-circle-dot"
                         label="Create issue"
                         :loading="creatingIssueId === issue.id"
-                        :disabled="!data.github.allow_issue_creation"
+                        :disabled="!canCreateGithubIssue(issue)"
                         @click="createGithubIssue(issue)"
                       />
                       <UButton
@@ -319,15 +394,15 @@ function getErrorMessage(error: unknown) {
                         color="primary"
                         variant="outline"
                         size="sm"
-                        icon="i-lucide-git-pull-request"
-                        label="Create PR"
+                        icon="i-lucide-wrench"
+                        label="Fix"
                         :loading="creatingPrId === issue.id"
-                        :disabled="!data.github.allow_pr_creation || data.github.repository_index_status !== 'ready'"
+                        :disabled="!canCreateGithubPullRequest(issue)"
                         @click="createGithubPullRequest(issue)"
                       />
                     </div>
                   </div>
-                  <p v-if="!data.issues.length" class="text-sm text-muted">
+                  <p v-if="!visibleIssues.length" class="text-sm text-muted">
                     No issues recorded yet.
                   </p>
                 </div>
@@ -335,11 +410,22 @@ function getErrorMessage(error: unknown) {
 
               <UCard>
                 <template #header>
-                  <h2 class="text-base font-semibold">
-                    Report
-                  </h2>
+                  <div class="flex items-center justify-between gap-3">
+                    <h2 class="text-base font-semibold">
+                      Report
+                    </h2>
+                    <UButton
+                      :to="reportUrl"
+                      target="_blank"
+                      color="neutral"
+                      variant="ghost"
+                      size="sm"
+                      icon="i-lucide-external-link"
+                      aria-label="Open markdown"
+                    />
+                  </div>
                 </template>
-                <pre class="max-h-[560px] overflow-auto whitespace-pre-wrap text-sm">{{ data.run.report_md || (data.run.status === 'cancelled' ? 'No report was generated because the run was stopped.' : 'The markdown report will appear when the run finishes.') }}</pre>
+                <pre class="max-h-[560px] overflow-auto whitespace-pre-wrap text-sm">{{ visibleReport || (data.run.status === 'cancelled' ? 'No report was generated because the run was stopped.' : 'The markdown report will appear when the run finishes.') }}</pre>
               </UCard>
             </div>
           </div>

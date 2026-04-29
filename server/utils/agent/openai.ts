@@ -15,6 +15,7 @@ type DecideInput = {
   }>
   elements: ElementInventoryItem[]
   screenshot: Buffer
+  diagnostics: Record<string, unknown>
   credentialFields: string[]
   githubContext?: GithubRepositoryContext | null
   repositoryVectorStoreId?: string | null
@@ -32,7 +33,9 @@ export async function decideNextAction(input: DecideInput): Promise<AgentDecisio
     model: input.openai.model,
     instructions: [
       'You are Ghost Customer, an AI QA/customer-simulation agent.',
+      'Act strictly as the provided persona profile and use its responsibilities to decide what to inspect and report.',
       'Use the screenshot and element inventory to choose the next Playwright action toward the user goal.',
+      'Use browser diagnostics when relevant, especially network timings, page-load timing, console messages, and page errors.',
       'Use repository file search when it is available to connect visible product behavior to likely implementation details.',
       'Prefer target_id from the element inventory. Use coordinates only indirectly by leaving target_id blank if no element matches.',
       'Do not stop because signup/login credentials were not supplied. Product Warden provides disposable test credential placeholders for this run.',
@@ -52,6 +55,7 @@ export async function decideNextAction(input: DecideInput): Promise<AgentDecisio
           step_number: input.stepNumber,
           available_credential_fields: input.credentialFields,
           github_repository_context: input.githubContext || null,
+          browser_diagnostics: input.diagnostics,
           history: input.history.slice(-8),
           elements: input.elements.slice(0, 80)
         })

@@ -28,6 +28,17 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 500, statusMessage: stepsError.message })
   }
 
+  const { data: personas, error: personasError } = await client
+    .from('qa_run_personas')
+    .select('*')
+    .eq('run_id', id)
+    .eq('user_id', user.id)
+    .order('position', { ascending: true })
+
+  if (personasError) {
+    throw createError({ statusCode: 500, statusMessage: personasError.message })
+  }
+
   const { data: issues, error: issuesError } = await client
     .from('qa_issues')
     .select('*')
@@ -43,6 +54,7 @@ export default defineEventHandler(async (event) => {
 
   return {
     run: withVideoUrl(run),
+    personas: (personas || []).map(persona => withVideoUrl(persona)),
     steps: (steps || []).map(step => withScreenshotUrl(step)),
     issues: (issues || []).map(issue => withScreenshotUrl(issue)),
     github

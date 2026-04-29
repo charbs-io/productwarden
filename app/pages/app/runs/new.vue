@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { SelectItem } from '@nuxt/ui'
-import type { Site } from '~/types'
+import type { PersonaTemplate, Site } from '~/types'
 
 const toast = useToast()
 const route = useRoute()
@@ -10,7 +10,7 @@ const submitting = ref(false)
 const form = reactive({
   siteId: String(route.query.site || ''),
   url: '',
-  persona: 'first-time founder setting up a team workspace',
+  personaTemplateIds: [] as string[],
   goal: '',
   username: '',
   password: '',
@@ -20,6 +20,9 @@ const form = reactive({
 const { data: sites } = await useFetch<Site[]>('/api/sites', {
   default: () => []
 })
+const { data: personaTemplates } = await useFetch<PersonaTemplate[]>('/api/persona-templates', {
+  default: () => []
+})
 
 const verifiedSites = computed(() => sites.value.filter(site => site.verified_at))
 const siteItems = computed<SelectItem[]>(() => verifiedSites.value.map(site => ({
@@ -27,10 +30,21 @@ const siteItems = computed<SelectItem[]>(() => verifiedSites.value.map(site => (
   value: site.id
 })))
 const selectedSite = computed(() => verifiedSites.value.find(site => site.id === form.siteId) || null)
+const starterTemplates = computed(() => personaTemplates.value.filter(template => template.is_starter))
+const customTemplates = computed(() => personaTemplates.value.filter(template => !template.is_starter))
 
 watchEffect(() => {
   if (!form.siteId && verifiedSites.value[0]) {
     form.siteId = verifiedSites.value[0].id
+  }
+
+  if (!form.personaTemplateIds.length && personaTemplates.value.length) {
+    const customer = personaTemplates.value.find(template => template.slug === 'customer')
+    const fallback = personaTemplates.value[0]
+    const templateId = customer?.id || fallback?.id
+    if (templateId) {
+      form.personaTemplateIds = [templateId]
+    }
   }
 })
 
@@ -48,7 +62,7 @@ async function startRun() {
       body: {
         siteId: form.siteId,
         url: form.url || undefined,
-        persona: form.persona,
+        personaTemplateIds: form.personaTemplateIds,
         goal: form.goal,
         maxSteps: Number(form.maxSteps),
         credentials: {
@@ -87,7 +101,7 @@ function getErrorMessage(error: unknown) {
                 Customer simulation
               </h2>
               <p class="text-sm text-muted">
-                Product Warden will visually inspect the site, act through Playwright, and produce a QA report.
+                Product Warden will visually inspect the site, act through Playwright, and produce persona reports plus an overarching report.
               </p>
             </div>
           </template>
@@ -106,8 +120,58 @@ function getErrorMessage(error: unknown) {
               <UInput v-model="form.url" :placeholder="selectedSite?.base_url || 'https://app.example.com/signup'" />
             </UFormField>
 
-            <UFormField label="Persona" name="persona" required>
-              <UInput v-model="form.persona" required />
+            <UFormField label="Personas" name="personaTemplateIds" required>
+              <div class="grid gap-3 md:grid-cols-2">
+                <label
+                  v-for="template in starterTemplates"
+                  :key="template.id"
+                  class="flex cursor-pointer gap-3 rounded-lg border border-default p-3 transition hover:bg-elevated/50"
+                  :class="form.personaTemplateIds.includes(template.id) ? 'bg-primary/5 ring-1 ring-primary' : ''"
+                >
+                  <input
+                    v-model="form.personaTemplateIds"
+                    type="checkbox"
+                    :value="template.id"
+                    class="mt-1 size-4"
+                  >
+                  <span class="min-w-0">
+                    <span class="block text-sm font-medium">{{ template.name }}</span>
+                    <span class="mt-1 block text-sm text-muted">{{ template.description }}</span>
+                  </span>
+                </label>
+              </div>
+              <div v-if="customTemplates.length" class="mt-3 grid gap-3 md:grid-cols-2">
+                <label
+                  v-for="template in customTemplates"
+                  :key="template.id"
+                  class="flex cursor-pointer gap-3 rounded-lg border border-default p-3 transition hover:bg-elevated/50"
+                  :class="form.personaTemplateIds.includes(template.id) ? 'bg-primary/5 ring-1 ring-primary' : ''"
+                >
+                  <input
+                    v-model="form.personaTemplateIds"
+                    type="checkbox"
+                    :value="template.id"
+                    class="mt-1 size-4"
+                  >
+                  <span class="min-w-0">
+                    <span class="block text-sm font-medium">{{ template.name }}</span>
+                    <span class="mt-1 block text-sm text-muted">{{ template.description || template.role }}</span>
+                  </span>
+                </label>
+              </div>
+              <div class="mt-3 flex justify-between gap-3">
+                <p class="text-sm text-muted">
+                  Select one or more personas. Each selected persona gets its own report.
+                </p>
+                <UButton
+                  to="/app/personas"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  icon="i-lucide-settings-2"
+                  label="Manage"
+                />
+              </div>
             </UFormField>
 
             <UFormField label="Goal" name="goal" required>
@@ -149,7 +213,7 @@ function getErrorMessage(error: unknown) {
                 icon="i-lucide-play"
                 label="Start QA run"
                 :loading="submitting"
-                :disabled="!verifiedSites.length"
+                :disabled="!verifiedSites.length || !form.personaTemplateIds.length"
               />
             </div>
           </form>

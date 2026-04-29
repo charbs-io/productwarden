@@ -1,5 +1,20 @@
 export type RunStatus = 'queued' | 'running' | 'completed' | 'blocked' | 'failed' | 'cancelled'
 export type IssueSeverity = 'low' | 'medium' | 'high'
+export type IssueCategory = 'bug' | 'ux' | 'accessibility' | 'copy' | 'navigation' | 'performance' | 'security' | 'reliability'
+
+export interface PersonaTemplate {
+  id: string
+  user_id: string | null
+  slug: string
+  name: string
+  description: string
+  role: string
+  responsibilities: string[]
+  report_focus: string[]
+  is_starter: boolean
+  created_at: string
+  updated_at: string
+}
 
 export interface SiteGithubConnection {
   site_id: string
@@ -64,9 +79,32 @@ export interface QaRun {
   completed_at: string | null
 }
 
+export interface QaRunPersona {
+  id: string
+  run_id: string
+  persona_template_id: string | null
+  position: number
+  name: string
+  role: string
+  responsibilities: string[]
+  report_focus: string[]
+  goal: string
+  status: RunStatus
+  result: 'completed' | 'partially_completed' | 'blocked' | null
+  error: string | null
+  issue_count: number
+  video_path: string | null
+  video_url?: string | null
+  report_md: string | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
 export interface QaStep {
   id: string
   run_id: string
+  persona_run_id: string | null
   step_number: number
   url: string
   screenshot_path: string | null
@@ -81,8 +119,9 @@ export interface QaStep {
 export interface QaIssue {
   id: string
   run_id: string
+  persona_run_id: string | null
   step_number: number | null
-  category: 'bug' | 'ux' | 'accessibility' | 'copy' | 'navigation'
+  category: IssueCategory
   severity: IssueSeverity
   title: string
   description: string
