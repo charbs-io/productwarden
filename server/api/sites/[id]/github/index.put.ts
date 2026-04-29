@@ -1,7 +1,13 @@
 import { z } from 'zod'
 import { createError, getRouterParam, readValidatedBody } from 'h3'
 import { createServiceSupabaseClient, requireUser } from '../../../../utils/supabase'
-import { createInstallationAccessToken, githubInstallationRequest, type GithubRepository } from '../../../../utils/github-app'
+import {
+  createInstallationAccessToken,
+  getGithubInstallation,
+  githubInstallationRequest,
+  type GithubInstallationPermissions,
+  type GithubRepository
+} from '../../../../utils/github-app'
 import { getUserSite } from '../../../../utils/sites'
 import { startGithubRepositoryIndex } from '../../../../utils/github-index'
 
@@ -17,6 +23,18 @@ type RepositoriesResponse = {
   repositories: GithubRepository[]
 }
 
+const permissionNames: Record<string, string> = {
+  contents: 'Contents',
+  issues: 'Issues',
+  metadata: 'Metadata',
+  pull_requests: 'Pull requests'
+}
+
+const permissionRank = {
+  read: 1,
+  write: 2
+}
+
 export default defineEventHandler(async (event) => {
   const user = await requireUser(event)
   const id = getRouterParam(event, 'id') || ''
@@ -24,14 +42,20 @@ export default defineEventHandler(async (event) => {
   const client = createServiceSupabaseClient(event)
   await getUserSite(client, user.id, id)
 
+  const permissions = buildRequiredPermissions(body)
+  const installation = await getGithubInstallation(event, body.installationId)
+  const missingPermissions = getMissingPermissions(installation.permissions, permissions)
+
+  if (missingPermissions.length) {
+    throw createError({
+      statusCode: 422,
+      statusMessage: `This GitHub App installation has not approved the required permissions: ${missingPermissions.join(', ')}. Approve the updated GitHub App permissions in GitHub, or turn off issue and pull request creation for this site.`
+    })
+  }
+
   const token = await createInstallationAccessToken(event, body.installationId, {
     repositoryIds: [body.repositoryId],
-    permissions: {
-      contents: body.allowPrCreation ? 'write' : 'read',
-      issues: body.allowIssueCreation ? 'write' : 'read',
-      metadata: 'read',
-      pull_requests: body.allowPrCreation ? 'write' : 'read'
-    }
+    permissions
   })
   const response = await githubInstallationRequest<RepositoriesResponse>(token.token, '/installation/repositories?per_page=100')
   const repository = response.repositories.find(repo => repo.id === body.repositoryId)
@@ -77,3 +101,33 @@ export default defineEventHandler(async (event) => {
 
   return data
 })
+
+function buildRequiredPermissions(body: z.infer<typeof schema>) {
+  const permissions: GithubInstallationPermissions = {
+    metadata: 'read'
+  }
+
+  if (body.useRepositoryContext || body.allowPrCreation) {
+    permissions.contents = body.allowPrCreation ? 'write' : 'read'
+  }
+
+  if (body.allowIssueCreation || body.allowPrCreation) {
+    permissions.issues = body.allowIssueCreation ? 'write' : 'read'
+  }
+
+  if (body.allowPrCreation) {
+    permissions.pull_requests = 'write'
+  }
+
+  return permissions
+}
+
+function getMissingPermissions(granted: GithubInstallationPermissions, required: GithubInstallationPermissions) {
+  return Object.entries(required)
+    .filter(([permission, level]) => !hasPermission(granted[permission], level))
+    .map(([permission, level]) => `${permissionNames[permission] || permission} ${level}`)
+}
+
+function hasPermission(granted: GithubInstallationPermissions[string] | undefined, required: GithubInstallationPermissions[string]) {
+  return Boolean(granted && permissionRank[granted] >= permissionRank[required])
+}

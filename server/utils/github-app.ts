@@ -16,6 +16,14 @@ type InstallationTokenResponse = {
   permissions: Record<string, string>
 }
 
+export type GithubInstallationPermissionLevel = 'read' | 'write'
+export type GithubInstallationPermissions = Record<string, GithubInstallationPermissionLevel>
+
+export type GithubInstallation = {
+  id: number
+  permissions: GithubInstallationPermissions
+}
+
 export type GithubRepository = {
   id: number
   name: string
@@ -76,7 +84,7 @@ export function verifyGithubWebhookSignature(event: H3Event, body: string, signa
 
 export async function createInstallationAccessToken(event: H3Event | undefined, installationId: number, options?: {
   repositoryIds?: number[]
-  permissions?: Record<string, 'read' | 'write'>
+  permissions?: GithubInstallationPermissions
 }) {
   const response = await githubAppRequest<InstallationTokenResponse>(event, `/app/installations/${installationId}/access_tokens`, {
     method: 'POST',
@@ -87,6 +95,10 @@ export async function createInstallationAccessToken(event: H3Event | undefined, 
   })
 
   return response
+}
+
+export async function getGithubInstallation(event: H3Event | undefined, installationId: number) {
+  return await githubAppRequest<GithubInstallation>(event, `/app/installations/${installationId}`)
 }
 
 export async function githubInstallationRequest<T>(token: string, path: string, init: RequestInit = {}) {
