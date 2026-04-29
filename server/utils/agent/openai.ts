@@ -81,6 +81,46 @@ export async function decideNextAction(input: DecideInput): Promise<AgentDecisio
       : undefined
   })
 
-  const parsed = JSON.parse(response.output_text) as AgentDecision
-  return parsed
+  return parseAgentDecision(readFinalOutputText(response))
+}
+
+function readFinalOutputText(response: {
+  output?: Array<{
+    type: string
+    content?: Array<{
+      type: string
+      text?: string
+    }>
+  }>
+  output_text?: string
+}) {
+  const texts: string[] = []
+
+  for (const output of response.output || []) {
+    if (output.type !== 'message') {
+      continue
+    }
+
+    for (const content of output.content || []) {
+      if (content.type === 'output_text' && typeof content.text === 'string') {
+        texts.push(content.text)
+      }
+    }
+  }
+
+  const text = texts.at(-1) || response.output_text || ''
+  if (!text.trim()) {
+    throw new Error('OpenAI returned an empty agent decision')
+  }
+
+  return text
+}
+
+function parseAgentDecision(text: string): AgentDecision {
+  try {
+    return JSON.parse(text) as AgentDecision
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'invalid JSON'
+    throw new Error(`OpenAI returned an invalid agent decision: ${message}`)
+  }
 }

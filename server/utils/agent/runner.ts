@@ -110,16 +110,31 @@ export function startQaRun(input: StartRunInput) {
         return
       }
 
-      await client
-        .from('qa_runs')
-        .update({
-          status: 'failed',
-          error: error?.message || 'Run failed',
-          completed_at: new Date().toISOString()
-        })
-        .eq('id', input.runId)
-        .eq('user_id', input.userId)
-        .in('status', ['queued', 'running'])
+      const errorMessage = error instanceof Error ? error.message : 'Run failed'
+      const completedAt = new Date().toISOString()
+
+      await Promise.all([
+        client
+          .from('qa_runs')
+          .update({
+            status: 'failed',
+            error: errorMessage,
+            completed_at: completedAt
+          })
+          .eq('id', input.runId)
+          .eq('user_id', input.userId)
+          .in('status', ['queued', 'running']),
+        client
+          .from('qa_run_personas')
+          .update({
+            status: 'failed',
+            error: errorMessage,
+            completed_at: completedAt
+          })
+          .eq('run_id', input.runId)
+          .eq('user_id', input.userId)
+          .in('status', ['queued', 'running'])
+      ])
     })
     .finally(() => {
       activeRuns.delete(input.runId)
