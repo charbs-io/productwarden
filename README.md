@@ -44,11 +44,24 @@ Enable GitHub in Supabase Auth and configure:
 - Supabase redirect URL: `http://localhost:3000/auth/callback`
 - Production redirect URL: `https://<your-domain>/auth/callback`
 
-Create a GitHub App for repository connections:
+Create a GitHub App for repository connections. In GitHub, go to the organization or account that should own the app, then open **Settings → Developer settings → GitHub Apps → New GitHub App**.
 
-- Setup callback URL: `https://<your-domain>/api/github/app/callback`
+- GitHub App name: choose a unique name, for example `User Zero`.
+- Homepage URL: your deployed app URL.
+- Post installation setup URL: `https://<your-domain>/api/github/app/callback`
 - Webhook URL: `https://<your-domain>/api/github/app/webhook`
-- Repository permissions: Contents read, Issues write, Pull requests write
+- Webhook secret: generate one with `openssl rand -hex 32`, paste it into GitHub, and use the same value for `GITHUB_APP_WEBHOOK_SECRET`.
+- Repository permissions: Contents read, Issues write, Pull requests write. Metadata read is included by GitHub.
+- Subscribe to events: Installation, Installation repositories.
+
+After creating the GitHub App, set these environment variables:
+
+- `GITHUB_APP_ID`: from the app settings page, next to **App ID**.
+- `GITHUB_APP_PRIVATE_KEY`: on the app settings page, under **Private keys**, click **Generate a private key**. Copy the downloaded `.pem` contents into the env var. If your host requires a single-line value, replace line breaks with `\n`; the app converts those back at runtime.
+- `GITHUB_APP_SLUG`: the app URL slug from `https://github.com/apps/<slug>` or `https://github.com/settings/apps/<slug>`. For an app named `User Zero`, this will usually look like `user-zero`.
+- `GITHUB_APP_WEBHOOK_SECRET`: the random secret you entered in the GitHub App webhook settings.
+
+For local GitHub App callback or webhook testing, expose your local server with a tunnel and use the tunnel URL in the GitHub App settings.
 
 ## Development
 
