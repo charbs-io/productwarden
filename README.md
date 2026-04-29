@@ -2,6 +2,12 @@
 
 Product Warden is a Nuxt 4 and Nuxt UI app for AI-powered QA/customer simulation. Users sign in with GitHub, verify ownership of a site, optionally connect a GitHub repo for context, start a browser run against a verified URL, and review screenshots, issues, trace steps, and a markdown report.
 
+## Why We Built This
+
+Product teams ship faster than manual QA cycles can usually keep up with. The most painful product bugs are often not isolated test failures, but broken real-world flows: confusing onboarding, dead buttons, missing states, layout issues, and copy that does not match what a customer is trying to do.
+
+Product Warden was built to make those checks easier to run repeatedly. It combines browser automation with AI review so a team can point it at a verified product URL, simulate customer behavior, and get a practical report with screenshots, trace steps, and issues worth fixing. The goal is not to replace human judgment, but to catch more product-quality problems earlier and make every review easier to act on.
+
 ## Stack
 
 - Nuxt 4
