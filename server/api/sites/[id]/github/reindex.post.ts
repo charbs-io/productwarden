@@ -23,6 +23,7 @@ export default defineEventHandler(async (event) => {
   return {
     ok: true,
     job_id: jobId,
-    repository_index_status: 'indexing'
+    repository_index_status: 'indexing',
+    repository_index_stage: 'queued'
   }
 })
