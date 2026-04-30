@@ -24,20 +24,20 @@ const columns: TableColumn<Site>[] = [{
   header: 'Site'
 }, {
   accessorKey: 'verified_at',
-  header: 'Verification'
+  header: 'Ownership'
 }, {
   accessorKey: 'github_connection',
-  header: 'GitHub'
+  header: 'Repository'
 }, {
   accessorKey: 'created_at',
-  header: 'Created'
+  header: 'Added'
 }, {
   id: 'actions',
   header: ''
 }]
 
 async function deleteSite(site: Site) {
-  if (!window.confirm(`Delete ${site.hostname}? QA run history will be kept, but it will no longer be attached to this site.`)) {
+  if (!window.confirm(`Remove ${site.hostname}? Past test history is kept, but new tests can't run against it until you add it back.`)) {
     return
   }
 
@@ -46,9 +46,9 @@ async function deleteSite(site: Site) {
   try {
     await $fetch(`/api/sites/${site.id}`, { method: 'DELETE' })
     await refresh()
-    toast.add({ title: 'Site deleted', description: `${site.hostname} was removed.`, color: 'success' })
+    toast.add({ title: 'Site removed', description: `${site.hostname} is gone.`, color: 'success' })
   } catch (error: unknown) {
-    toast.add({ title: 'Could not delete site', description: getErrorMessage(error), color: 'error' })
+    toast.add({ title: `Couldn't remove site`, description: getErrorMessage(error), color: 'error' })
   } finally {
     deletingSiteId.value = null
   }
@@ -58,6 +58,15 @@ function getErrorMessage(error: unknown) {
   const fetchError = error as { data?: { message?: string }, message?: string }
   return fetchError.data?.message || fetchError.message || 'Unexpected error'
 }
+
+function relativeTime(value: string) {
+  const ms = Date.now() - new Date(value).getTime()
+  const days = Math.round(ms / 86_400_000)
+  if (days < 1) return 'today'
+  if (days === 1) return 'yesterday'
+  if (days < 30) return `${days}d ago`
+  return new Date(value).toLocaleDateString()
+}
 </script>
 
 <template>
@@ -65,70 +74,75 @@ function getErrorMessage(error: unknown) {
     <template #header>
       <UDashboardNavbar title="Sites">
         <template #right>
-          <UButton to="/app/sites/new" icon="i-lucide-plus" label="Add site" />
+          <UButton to="/app/sites/new" label="Add a site" />
         </template>
       </UDashboardNavbar>
     </template>
 
     <template #body>
-      <UCard>
+      <div class="space-y-6">
+        <PageIntro description="Sites are the websites you've proven you own. Tests can only run against a verified hostname. Connect a GitHub repo to give tests code context and turn findings into issues or pull requests." />
+
         <UTable
           :data="sites"
           :columns="columns"
           :loading="pending"
-          empty="No sites added yet."
+          empty="No sites yet. Add one to get started."
+          :ui="{
+            root: '-mx-2',
+            thead: '[&>tr]:border-default',
+            tbody: '[&>tr]:border-default'
+          }"
         >
           <template #hostname-cell="{ row }">
-            <div class="min-w-0">
-              <p class="truncate text-sm font-medium">
+            <NuxtLink :to="`/app/sites/${row.original.id}`" class="block min-w-0 hover:underline">
+              <p class="truncate text-sm font-medium text-default">
                 {{ row.original.hostname }}
               </p>
               <p class="truncate text-xs text-muted">
                 {{ row.original.base_url }}
               </p>
-            </div>
+            </NuxtLink>
           </template>
 
           <template #verified_at-cell="{ row }">
-            <UBadge :color="row.original.verified_at ? 'success' : 'warning'" variant="subtle">
-              {{ row.original.verified_at ? 'Verified' : 'Pending' }}
-            </UBadge>
+            <span v-if="row.original.verified_at" class="text-sm text-success">Verified</span>
+            <span v-else class="text-sm text-warning">Awaiting verification</span>
           </template>
 
           <template #github_connection-cell="{ row }">
             <span class="text-sm text-muted">
-              {{ row.original.github_connection && !row.original.github_connection.disconnected_at ? row.original.github_connection.full_name : 'Not connected' }}
+              {{ row.original.github_connection && !row.original.github_connection.disconnected_at ? row.original.github_connection.full_name : '—' }}
             </span>
           </template>
 
           <template #created_at-cell="{ row }">
-            <span class="text-sm text-muted">{{ new Date(row.original.created_at).toLocaleString() }}</span>
+            <span class="text-sm text-muted">{{ relativeTime(row.original.created_at) }}</span>
           </template>
 
           <template #actions-cell="{ row }">
             <div class="flex justify-end gap-1">
               <UButton
-                color="error"
-                variant="ghost"
-                size="sm"
-                icon="i-lucide-trash-2"
-                aria-label="Delete site"
-                :loading="deletingSiteId === row.original.id"
-                :disabled="Boolean(deletingSiteId)"
-                @click="deleteSite(row.original)"
-              />
-              <UButton
                 :to="`/app/sites/${row.original.id}`"
                 color="neutral"
                 variant="ghost"
                 size="sm"
-                icon="i-lucide-arrow-right"
-                aria-label="Open site"
+                label="Open"
+              />
+              <UButton
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                icon="i-lucide-trash-2"
+                aria-label="Remove site"
+                :loading="deletingSiteId === row.original.id"
+                :disabled="Boolean(deletingSiteId)"
+                @click="deleteSite(row.original)"
               />
             </div>
           </template>
         </UTable>
-      </UCard>
+      </div>
     </template>
   </UDashboardPanel>
 </template>

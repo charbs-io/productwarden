@@ -5,63 +5,65 @@ useDashboard()
 
 const open = ref(false)
 
-const links = [[{
-  label: 'Overview',
-  icon: 'i-lucide-layout-dashboard',
+const primaryLinks = [{
+  label: 'Home',
+  icon: 'i-lucide-home',
   to: '/app',
   onSelect: () => {
     open.value = false
   }
 }, {
   label: 'Sites',
-  icon: 'i-lucide-panels-top-left',
+  icon: 'i-lucide-globe',
   to: '/app/sites',
   onSelect: () => {
     open.value = false
   }
 }, {
+  label: 'Tests',
+  icon: 'i-lucide-activity',
+  to: '/app/runs',
+  onSelect: () => {
+    open.value = false
+  }
+}, {
   label: 'Personas',
-  icon: 'i-lucide-users-round',
+  icon: 'i-lucide-user-round',
   to: '/app/personas',
   onSelect: () => {
     open.value = false
   }
 }, {
-  label: 'PRs',
+  label: 'Pull requests',
   icon: 'i-lucide-git-pull-request',
   to: '/app/pulls',
   onSelect: () => {
     open.value = false
   }
-}, {
-  label: 'Runs',
-  icon: 'i-lucide-list-checks',
-  to: '/app/runs',
-  onSelect: () => {
-    open.value = false
-  }
-}], [{
-  label: 'Setup',
-  icon: 'i-lucide-book-open-check',
+}] satisfies NavigationMenuItem[]
+
+const secondaryLinks = [{
+  label: 'Settings',
+  icon: 'i-lucide-settings',
   to: '/app/setup'
-}]] satisfies NavigationMenuItem[][]
+}] satisfies NavigationMenuItem[]
 
 const groups = computed(() => [{
-  id: 'links',
+  id: 'navigate',
   label: 'Navigate',
-  items: links.flat()
+  items: [...primaryLinks, ...secondaryLinks]
 }, {
   id: 'actions',
-  label: 'Actions',
+  label: 'Quick actions',
   items: [{
     id: 'new-run',
-    label: 'Start a QA run',
+    label: 'Run a test',
     icon: 'i-lucide-play',
     to: '/app/runs/new'
   }, {
     id: 'add-site',
     label: 'Add a site',
-    icon: 'i-lucide-shield-check',
+    icon: 'i-lucide-plus',
     to: '/app/sites/new'
   }]
 }])
@@ -86,7 +88,7 @@ const groups = computed(() => [{
 
         <UNavigationMenu
           :collapsed="collapsed"
-          :items="links[0]"
+          :items="primaryLinks"
           orientation="vertical"
           tooltip
           popover
@@ -94,7 +96,7 @@ const groups = computed(() => [{
 
         <UNavigationMenu
           :collapsed="collapsed"
-          :items="links[1]"
+          :items="secondaryLinks"
           orientation="vertical"
           tooltip
           class="mt-auto"
