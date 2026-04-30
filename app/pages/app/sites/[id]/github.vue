@@ -63,7 +63,7 @@ watch(
 
     const timer = window.setInterval(() => {
       void refresh()
-    }, 5000)
+    }, 2500)
     onCleanup(() => window.clearInterval(timer))
   },
   { immediate: true }
@@ -177,6 +177,67 @@ function indexColor(status?: string) {
   }
 }
 
+function indexProgressText(connection: NonNullable<Site['github_connection']>) {
+  if (connection.repository_index_status === 'ready') {
+    return `${connection.repository_index_file_count} indexed files`
+  }
+
+  if (connection.repository_index_status === 'failed') {
+    return 'Indexing failed'
+  }
+
+  if (connection.repository_index_status !== 'indexing') {
+    return 'Not indexed'
+  }
+
+  const processed = connection.repository_index_processed_file_count || 0
+  const total = connection.repository_index_total_file_count || 0
+
+  switch (connection.repository_index_stage) {
+    case 'queued':
+      return 'Waiting for worker'
+    case 'preparing':
+      return 'Preparing repository'
+    case 'fetching':
+      return total ? `Fetching files ${processed}/${total}` : 'Finding indexable files'
+    case 'uploading':
+      return total ? `Uploading files ${processed}/${total}` : 'Uploading files'
+    case 'indexing':
+      return total ? `Finalizing ${total} files` : 'Finalizing index'
+    default:
+      return 'Indexing repository'
+  }
+}
+
+function indexProgressPercent(connection: NonNullable<Site['github_connection']>) {
+  if (connection.repository_index_status === 'ready') {
+    return 100
+  }
+
+  if (connection.repository_index_status !== 'indexing') {
+    return 0
+  }
+
+  const processed = connection.repository_index_processed_file_count || 0
+  const total = connection.repository_index_total_file_count || 0
+  const ratio = total > 0 ? Math.min(processed / total, 1) : 0
+
+  switch (connection.repository_index_stage) {
+    case 'queued':
+      return 5
+    case 'preparing':
+      return 12
+    case 'fetching':
+      return Math.max(12, Math.round(12 + ratio * 28))
+    case 'uploading':
+      return Math.max(40, Math.round(40 + ratio * 35))
+    case 'indexing':
+      return 88
+    default:
+      return 18
+  }
+}
+
 function getErrorMessage(error: unknown) {
   const fetchError = error as { data?: { message?: string }, message?: string }
   return fetchError.data?.message || fetchError.message || 'Unexpected error'
@@ -243,11 +304,19 @@ function getErrorMessage(error: unknown) {
                   {{ activeConnection.repository_index_status }}
                 </UBadge>
                 <span class="text-xs text-muted">
-                  {{ activeConnection.repository_index_file_count }} indexed files
+                  {{ indexProgressText(activeConnection) }}
                 </span>
                 <span v-if="activeConnection.repository_indexed_at" class="text-xs text-muted">
                   Indexed {{ new Date(activeConnection.repository_indexed_at).toLocaleString() }}
                 </span>
+              </div>
+              <div v-if="activeConnection.repository_index_status === 'indexing'" class="mt-3">
+                <div class="h-1.5 overflow-hidden rounded-full bg-elevated">
+                  <div
+                    class="h-full rounded-full bg-primary transition-all duration-500"
+                    :style="{ width: `${indexProgressPercent(activeConnection)}%` }"
+                  />
+                </div>
               </div>
               <p v-if="activeConnection.repository_index_error" class="mt-2 text-xs text-error">
                 {{ activeConnection.repository_index_error }}

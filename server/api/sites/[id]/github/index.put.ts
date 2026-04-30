@@ -83,13 +83,16 @@ export default defineEventHandler(async (event) => {
       allow_pr_creation: body.allowPrCreation,
       repository_index_job_id: null,
       repository_index_status: body.useRepositoryContext ? 'indexing' : 'not_indexed',
+      repository_index_stage: body.useRepositoryContext ? 'queued' : null,
       repository_index_error: null,
       repository_index_file_count: 0,
+      repository_index_processed_file_count: 0,
+      repository_index_total_file_count: 0,
       connected_at: now,
       disconnected_at: null,
       updated_at: now
     }, { onConflict: 'site_id' })
-    .select('site_id, installation_id, repository_id, owner, repo, full_name, html_url, default_branch, permissions, use_repository_context, allow_issue_creation, allow_pr_creation, repository_index_status, repository_indexed_branch, repository_indexed_sha, repository_index_started_at, repository_indexed_at, repository_index_error, repository_index_file_count, connected_at, disconnected_at, updated_at')
+    .select('site_id, installation_id, repository_id, owner, repo, full_name, html_url, default_branch, permissions, use_repository_context, allow_issue_creation, allow_pr_creation, repository_index_status, repository_indexed_branch, repository_indexed_sha, repository_index_started_at, repository_indexed_at, repository_index_error, repository_index_file_count, repository_index_stage, repository_index_processed_file_count, repository_index_total_file_count, connected_at, disconnected_at, updated_at')
     .single()
 
   if (error) {

@@ -40,7 +40,7 @@ export async function claimNextGithubRepositoryIndexJob(client: SupabaseClient, 
 export async function heartbeatGithubRepositoryIndexJob(client: SupabaseClient, jobId: string, workerId: string) {
   const now = new Date().toISOString()
 
-  await client
+  const { error } = await client
     .from('repository_index_jobs')
     .update({
       heartbeat_at: now,
@@ -49,11 +49,15 @@ export async function heartbeatGithubRepositoryIndexJob(client: SupabaseClient, 
     .eq('id', jobId)
     .eq('status', 'running')
     .eq('locked_by', workerId)
+
+  if (error) {
+    throw createServerError(500, error.message)
+  }
 }
 
 export async function completeGithubRepositoryIndexJob(client: SupabaseClient, job: RepositoryIndexJob, workerId: string) {
   const now = new Date().toISOString()
-  await client
+  const { data, error } = await client
     .from('repository_index_jobs')
     .update({
       status: 'succeeded',
@@ -64,11 +68,19 @@ export async function completeGithubRepositoryIndexJob(client: SupabaseClient, j
     .eq('id', job.id)
     .eq('status', 'running')
     .eq('locked_by', workerId)
+    .select('id')
+    .maybeSingle()
+
+  if (error) {
+    throw createServerError(500, error.message)
+  }
+
+  return Boolean(data)
 }
 
 export async function cancelGithubRepositoryIndexJob(client: SupabaseClient, job: RepositoryIndexJob, workerId: string, reason: string) {
   const now = new Date().toISOString()
-  await client
+  const { data, error } = await client
     .from('repository_index_jobs')
     .update({
       status: 'cancelled',
@@ -80,6 +92,14 @@ export async function cancelGithubRepositoryIndexJob(client: SupabaseClient, job
     .eq('id', job.id)
     .eq('status', 'running')
     .eq('locked_by', workerId)
+    .select('id')
+    .maybeSingle()
+
+  if (error) {
+    throw createServerError(500, error.message)
+  }
+
+  return Boolean(data)
 }
 
 export async function failGithubRepositoryIndexJob(client: SupabaseClient, job: RepositoryIndexJob, workerId: string, error: unknown) {
@@ -87,7 +107,7 @@ export async function failGithubRepositoryIndexJob(client: SupabaseClient, job: 
   const message = getErrorMessage(error)
   const finalAttempt = job.attempts >= job.max_attempts
 
-  const { data } = await client
+  const { data, error: jobError } = await client
     .from('repository_index_jobs')
     .update({
       status: finalAttempt ? 'failed' : 'queued',
@@ -104,20 +124,31 @@ export async function failGithubRepositoryIndexJob(client: SupabaseClient, job: 
     .select('id')
     .maybeSingle()
 
-  if (!data) {
-    return
+  if (jobError) {
+    throw createServerError(500, jobError.message)
   }
 
-  await client
+  if (!data) {
+    return false
+  }
+
+  const { error: connectionError } = await client
     .from('site_github_connections')
     .update({
       repository_index_status: finalAttempt ? 'failed' : 'indexing',
+      repository_index_stage: finalAttempt ? 'failed' : 'queued',
       repository_index_error: message,
       updated_at: now
     })
     .eq('site_id', job.site_id)
     .eq('user_id', job.user_id)
     .eq('repository_index_job_id', job.id)
+
+  if (connectionError) {
+    throw createServerError(500, connectionError.message)
+  }
+
+  return true
 }
 
 function getErrorMessage(error: unknown) {

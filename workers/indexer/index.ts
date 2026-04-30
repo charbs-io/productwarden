@@ -73,24 +73,32 @@ async function processJob(job: RepositoryIndexJob) {
     clearInterval(heartbeat)
 
     if (result.stale) {
-      await cancelGithubRepositoryIndexJob(client, job, workerId, 'Superseded by a newer repository index request')
-      console.info('Repository index job skipped after being superseded', { jobId: job.id })
+      const cancelled = await cancelGithubRepositoryIndexJob(client, job, workerId, 'Superseded by a newer repository index request')
+      console.info('Repository index job skipped after being superseded', { jobId: job.id, cancelled })
       return
     }
 
-    await completeGithubRepositoryIndexJob(client, job, workerId)
+    const completed = await completeGithubRepositoryIndexJob(client, job, workerId)
     console.info('Repository index job completed', {
       jobId: job.id,
       vectorStoreId: result.vector_store_id,
-      fileCount: result.file_count
+      fileCount: result.file_count,
+      completed
     })
   } catch (error) {
     clearInterval(heartbeat)
-    await failGithubRepositoryIndexJob(client, job, workerId, error)
+    const failed = await failGithubRepositoryIndexJob(client, job, workerId, error).catch((failureUpdateError) => {
+      console.error('Repository index job failure update failed', {
+        jobId: job.id,
+        error: getErrorMessage(failureUpdateError)
+      })
+      return false
+    })
     console.error('Repository index job failed', {
       jobId: job.id,
       attempt: job.attempts,
       maxAttempts: job.max_attempts,
+      failed,
       error: getErrorMessage(error)
     })
   }

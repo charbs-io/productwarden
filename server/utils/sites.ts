@@ -33,6 +33,9 @@ type GithubConnectionRow = {
   repository_indexed_at: string | null
   repository_index_error: string | null
   repository_index_file_count: number
+  repository_index_stage: string | null
+  repository_index_processed_file_count: number
+  repository_index_total_file_count: number
   connected_at: string
   disconnected_at: string | null
   updated_at: string
@@ -58,6 +61,9 @@ const publicGithubConnectionSelect = [
   'repository_indexed_at',
   'repository_index_error',
   'repository_index_file_count',
+  'repository_index_stage',
+  'repository_index_processed_file_count',
+  'repository_index_total_file_count',
   'connected_at',
   'disconnected_at',
   'updated_at'

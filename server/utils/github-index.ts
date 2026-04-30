@@ -13,6 +13,7 @@ const maxIndexedTotalBytes = 6_000_000
 type GithubConnection = {
   site_id: string
   user_id: string
+  repository_index_job_id: string | null
   installation_id: number
   repository_id: number
   owner: string
@@ -63,15 +64,22 @@ export async function indexGithubRepository(input: {
     throw createServerError(404, 'GitHub connection not found')
   }
 
+  if (input.jobId && connection.repository_index_job_id !== input.jobId) {
+    return staleIndexResult(null, 0, null)
+  }
+
   const openaiConfig = await loadUserOpenAIConfig(client, input.userId, input.event)
   const keyFingerprint = fingerprintOpenAIKey(openaiConfig.apiKey, input.event)
   const openai = new OpenAI({ apiKey: openaiConfig.apiKey })
   const now = new Date().toISOString()
 
-  const indexingPatch: Record<string, string | null> = {
+  const indexingPatch: Record<string, string | number | null> = {
     repository_index_status: 'indexing',
+    repository_index_stage: 'preparing',
     repository_index_started_at: now,
     repository_index_error: null,
+    repository_index_processed_file_count: 0,
+    repository_index_total_file_count: 0,
     updated_at: now
   }
 
@@ -79,11 +87,27 @@ export async function indexGithubRepository(input: {
     indexingPatch.repository_index_job_id = input.jobId
   }
 
-  await client
+  let indexingQuery = client
     .from('site_github_connections')
     .update(indexingPatch)
     .eq('site_id', input.siteId)
     .eq('user_id', input.userId)
+
+  if (input.jobId) {
+    indexingQuery = indexingQuery.eq('repository_index_job_id', input.jobId)
+  }
+
+  const { data: activeConnection, error: indexingError } = await indexingQuery
+    .select('site_id')
+    .maybeSingle()
+
+  if (indexingError) {
+    throw createServerError(500, indexingError.message)
+  }
+
+  if (input.jobId && !activeConnection) {
+    return staleIndexResult(null, 0, null)
+  }
 
   let newVectorStoreId: string | null = null
 
@@ -103,39 +127,74 @@ export async function indexGithubRepository(input: {
     ])
     const headSha = branchResponse.commit?.sha || null
     const candidates = selectIndexCandidates(treeResponse.tree || [])
+    await updateIndexProgress(client, input, {
+      stage: 'fetching',
+      processedFileCount: 0,
+      totalFileCount: candidates.length
+    })
+
+    let fetchedCount = 0
+    let eligibleCount = 0
     const files = await mapLimit(candidates, 6, async (candidate) => {
-      const content = await githubInstallationRequest<GithubContentResponse>(
-        token.token,
-        `${repoPath}/contents/${encodePath(candidate.path)}?ref=${encodeURIComponent(branch)}`
-      ).catch(() => null)
+      let indexedFile: IndexedFile | null = null
 
-      if (!content || content.encoding !== 'base64' || !content.content) {
-        return null
+      try {
+        const content = await githubInstallationRequest<GithubContentResponse>(
+          token.token,
+          `${repoPath}/contents/${encodePath(candidate.path)}?ref=${encodeURIComponent(branch)}`
+        ).catch(() => null)
+
+        if (!content || content.encoding !== 'base64' || !content.content) {
+          return null
+        }
+
+        const decoded = Buffer.from(content.content.replace(/\n/g, ''), 'base64').toString('utf8')
+        if (looksBinary(decoded)) {
+          return null
+        }
+
+        indexedFile = {
+          path: candidate.path,
+          sha: candidate.sha,
+          size: Buffer.byteLength(decoded),
+          content: [
+            `Path: ${candidate.path}`,
+            `Repository: ${connection.full_name}`,
+            `Branch: ${branch}`,
+            '',
+            decoded
+          ].join('\n')
+        }
+
+        return indexedFile
+      } finally {
+        fetchedCount += 1
+        if (indexedFile) {
+          eligibleCount += 1
+        }
+
+        if (fetchedCount === candidates.length || fetchedCount % 20 === 0) {
+          await updateIndexProgress(client, input, {
+            stage: 'fetching',
+            processedFileCount: fetchedCount,
+            totalFileCount: candidates.length,
+            fileCount: eligibleCount
+          })
+        }
       }
-
-      const decoded = Buffer.from(content.content.replace(/\n/g, ''), 'base64').toString('utf8')
-      if (looksBinary(decoded)) {
-        return null
-      }
-
-      return {
-        path: candidate.path,
-        sha: candidate.sha,
-        size: Buffer.byteLength(decoded),
-        content: [
-          `Path: ${candidate.path}`,
-          `Repository: ${connection.full_name}`,
-          `Branch: ${branch}`,
-          '',
-          decoded
-        ].join('\n')
-      } satisfies IndexedFile
     })
     const indexedFiles = files.filter(Boolean) as IndexedFile[]
 
     if (!indexedFiles.length) {
       throw createServerError(422, 'No eligible repository files were found to index')
     }
+
+    await updateIndexProgress(client, input, {
+      stage: 'uploading',
+      processedFileCount: 0,
+      totalFileCount: indexedFiles.length,
+      fileCount: indexedFiles.length
+    })
 
     const vectorStore = await openai.vectorStores.create({
       name: `ProductWarden ${connection.full_name}`,
@@ -147,16 +206,34 @@ export async function indexGithubRepository(input: {
     })
     newVectorStoreId = vectorStore.id
 
+    let uploadedCount = 0
     const uploadedFiles = await mapLimit(indexedFiles, 6, async (file) => {
       const uploadedFile = await openai.files.create({
         file: new File([file.content], safeOpenAIFileName(file.path), { type: 'text/plain' }),
         purpose: 'assistants'
       })
 
+      uploadedCount += 1
+      if (uploadedCount === indexedFiles.length || uploadedCount % 20 === 0) {
+        await updateIndexProgress(client, input, {
+          stage: 'uploading',
+          processedFileCount: uploadedCount,
+          totalFileCount: indexedFiles.length,
+          fileCount: indexedFiles.length
+        })
+      }
+
       return {
         file,
         fileId: uploadedFile.id
       }
+    })
+
+    await updateIndexProgress(client, input, {
+      stage: 'indexing',
+      processedFileCount: uploadedFiles.length,
+      totalFileCount: uploadedFiles.length,
+      fileCount: indexedFiles.length
     })
 
     const batch = await openai.vectorStores.fileBatches.createAndPoll(vectorStore.id, {
@@ -179,11 +256,14 @@ export async function indexGithubRepository(input: {
     const readyPatch = {
       repository_vector_store_id: vectorStore.id,
       repository_index_status: 'ready',
+      repository_index_stage: 'ready',
       repository_indexed_branch: branch,
       repository_indexed_sha: headSha,
       repository_indexed_at: indexedAt,
       repository_index_error: null,
       repository_index_file_count: indexedFiles.length,
+      repository_index_processed_file_count: indexedFiles.length,
+      repository_index_total_file_count: indexedFiles.length,
       repository_index_openai_key_fingerprint: keyFingerprint,
       updated_at: indexedAt
     }
@@ -207,12 +287,7 @@ export async function indexGithubRepository(input: {
 
     if (!updatedConnection) {
       await openai.vectorStores.delete(vectorStore.id).catch(() => undefined)
-      return {
-        stale: true,
-        vector_store_id: vectorStore.id,
-        file_count: indexedFiles.length,
-        indexed_sha: headSha
-      }
+      return staleIndexResult(vectorStore.id, indexedFiles.length, headSha)
     }
 
     if (connection.repository_vector_store_id && connection.repository_vector_store_id !== vectorStore.id) {
@@ -270,7 +345,7 @@ export async function loadReadyRepositoryVectorStore(client: SupabaseClient, use
 async function loadIndexConnection(client: SupabaseClient, userId: string, siteId: string) {
   const { data, error } = await client
     .from('site_github_connections')
-    .select('site_id, user_id, installation_id, repository_id, owner, repo, full_name, default_branch, repository_vector_store_id')
+    .select('site_id, user_id, repository_index_job_id, installation_id, repository_id, owner, repo, full_name, default_branch, repository_vector_store_id')
     .eq('site_id', siteId)
     .eq('user_id', userId)
     .is('disconnected_at', null)
@@ -289,11 +364,51 @@ async function markIndexFailed(client: SupabaseClient, userId: string, siteId: s
     .from('site_github_connections')
     .update({
       repository_index_status: 'failed',
+      repository_index_stage: 'failed',
       repository_index_error: error instanceof Error ? error.message : 'Repository indexing failed',
       updated_at: now
     })
     .eq('site_id', siteId)
     .eq('user_id', userId)
+}
+
+async function updateIndexProgress(
+  client: SupabaseClient,
+  input: { siteId: string, userId: string, jobId?: string },
+  progress: {
+    stage: string
+    processedFileCount: number
+    totalFileCount: number
+    fileCount?: number
+  }
+) {
+  const now = new Date().toISOString()
+  const patch: Record<string, string | number> = {
+    repository_index_stage: progress.stage,
+    repository_index_processed_file_count: progress.processedFileCount,
+    repository_index_total_file_count: progress.totalFileCount,
+    updated_at: now
+  }
+
+  if (typeof progress.fileCount === 'number') {
+    patch.repository_index_file_count = progress.fileCount
+  }
+
+  let query = client
+    .from('site_github_connections')
+    .update(patch)
+    .eq('site_id', input.siteId)
+    .eq('user_id', input.userId)
+
+  if (input.jobId) {
+    query = query.eq('repository_index_job_id', input.jobId)
+  }
+
+  const { error } = await query
+
+  if (error) {
+    throw createServerError(500, error.message)
+  }
 }
 
 function selectIndexCandidates(tree: NonNullable<GithubTreeResponse['tree']>) {
@@ -416,4 +531,13 @@ function encodePath(path: string) {
 function safeOpenAIFileName(path: string) {
   const safeName = path.replace(/[^a-zA-Z0-9._-]/g, '__').slice(-116) || 'repository-file'
   return `${safeName}.txt`
+}
+
+function staleIndexResult(vectorStoreId: string | null, fileCount: number, indexedSha: string | null) {
+  return {
+    stale: true,
+    vector_store_id: vectorStoreId,
+    file_count: fileCount,
+    indexed_sha: indexedSha
+  }
 }
