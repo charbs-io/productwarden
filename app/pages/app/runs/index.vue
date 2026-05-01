@@ -12,17 +12,20 @@ const { data: runs, refresh, pending } = await useFetch<QaRun[]>('/api/runs', {
 useIntervalFn(() => refresh(), 5000)
 
 const columns: TableColumn<QaRun>[] = [{
+  accessorKey: 'goal',
+  header: 'Test'
+}, {
   accessorKey: 'target_hostname',
-  header: 'Target'
+  header: 'Site'
 }, {
   accessorKey: 'status',
   header: 'Status'
 }, {
   accessorKey: 'issue_count',
-  header: 'Issues'
+  header: 'Findings'
 }, {
   accessorKey: 'created_at',
-  header: 'Created'
+  header: 'Started'
 }, {
   id: 'actions',
   header: ''
@@ -43,6 +46,25 @@ function statusColor(status: QaRun['status']) {
   }
 }
 
+function statusLabel(status: QaRun['status']) {
+  switch (status) {
+    case 'queued':
+      return 'Queued'
+    case 'running':
+      return 'Running'
+    case 'completed':
+      return 'Done'
+    case 'blocked':
+      return 'Blocked'
+    case 'failed':
+      return 'Failed'
+    case 'cancelled':
+      return 'Stopped'
+    default:
+      return status
+  }
+}
+
 function canStopRun(run: QaRun) {
   return ['queued', 'running'].includes(run.status)
 }
@@ -59,9 +81,9 @@ async function stopRun(run: QaRun) {
       method: 'POST'
     })
     await refresh()
-    toast.add({ title: 'Run stopped', color: 'success' })
+    toast.add({ title: 'Stopped', color: 'success' })
   } catch (error: unknown) {
-    toast.add({ title: 'Run could not be stopped', description: getErrorMessage(error), color: 'error' })
+    toast.add({ title: `Couldn't stop the test`, description: getErrorMessage(error), color: 'error' })
   } finally {
     stoppingRunId.value = null
   }
@@ -71,48 +93,75 @@ function getErrorMessage(error: unknown) {
   const fetchError = error as { data?: { message?: string }, message?: string }
   return fetchError.data?.message || fetchError.message || 'Unexpected error'
 }
+
+function relativeTime(value: string) {
+  const ms = Date.now() - new Date(value).getTime()
+  const minutes = Math.round(ms / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(value).toLocaleDateString()
+}
 </script>
 
 <template>
   <UDashboardPanel id="runs">
     <template #header>
-      <UDashboardNavbar title="Runs">
+      <UDashboardNavbar title="Tests">
         <template #right>
-          <UButton to="/app/runs/new" icon="i-lucide-play" label="New run" />
+          <UButton to="/app/runs/new" label="Run a test" />
         </template>
       </UDashboardNavbar>
     </template>
 
     <template #body>
-      <UCard>
+      <div class="space-y-6">
+        <PageIntro description="Every browser test you've started, newest first. Open one to see the journey, screenshots, findings, and the report." />
+
         <UTable
           :data="runs"
           :columns="columns"
           :loading="pending"
-          empty="No QA runs yet."
+          empty="No tests yet."
+          :ui="{ root: '-mx-2' }"
         >
+          <template #goal-cell="{ row }">
+            <NuxtLink :to="`/app/runs/${row.original.id}`" class="block min-w-0 hover:underline">
+              <p class="line-clamp-1 text-sm font-medium text-default">
+                {{ row.original.goal }}
+              </p>
+            </NuxtLink>
+          </template>
+
+          <template #target_hostname-cell="{ row }">
+            <span class="truncate text-sm text-muted">{{ row.original.target_hostname }}</span>
+          </template>
+
           <template #status-cell="{ row }">
-            <UBadge
-              :color="statusColor(row.original.status)"
-              variant="subtle"
-            >
-              {{ row.original.status }}
+            <UBadge :color="statusColor(row.original.status)" variant="subtle">
+              {{ statusLabel(row.original.status) }}
             </UBadge>
           </template>
 
+          <template #issue_count-cell="{ row }">
+            <span class="text-sm tabular-nums text-default">{{ row.original.issue_count || 0 }}</span>
+          </template>
+
           <template #created_at-cell="{ row }">
-            <span class="text-sm text-muted">{{ new Date(row.original.created_at).toLocaleString() }}</span>
+            <span class="text-sm tabular-nums text-muted">{{ relativeTime(row.original.created_at) }}</span>
           </template>
 
           <template #actions-cell="{ row }">
             <div class="flex justify-end gap-1">
               <UButton
                 v-if="canStopRun(row.original)"
-                color="error"
+                color="neutral"
                 variant="ghost"
                 size="sm"
-                icon="i-lucide-square"
-                aria-label="Stop run"
+                label="Stop"
                 :loading="stoppingRunId === row.original.id"
                 @click="stopRun(row.original)"
               />
@@ -121,13 +170,12 @@ function getErrorMessage(error: unknown) {
                 color="neutral"
                 variant="ghost"
                 size="sm"
-                icon="i-lucide-arrow-right"
-                aria-label="Open run"
+                label="Open"
               />
             </div>
           </template>
         </UTable>
-      </UCard>
+      </div>
     </template>
   </UDashboardPanel>
 </template>

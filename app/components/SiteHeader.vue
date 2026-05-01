@@ -9,25 +9,21 @@ const props = defineProps<{
 const route = useRoute()
 
 const items = computed<NavigationMenuItem[][]>(() => [[{
-  label: 'Runs',
-  icon: 'i-lucide-list-checks',
+  label: 'Tests',
   to: `/app/sites/${props.siteId}`,
   active: route.path === `/app/sites/${props.siteId}`
 }, {
-  label: 'Site settings',
-  icon: 'i-lucide-settings',
-  to: `/app/sites/${props.siteId}/settings`,
-  active: route.path === `/app/sites/${props.siteId}/settings`
+  label: 'Pull requests',
+  to: `/app/sites/${props.siteId}/pulls`,
+  active: route.path === `/app/sites/${props.siteId}/pulls`
 }, {
-  label: 'GitHub settings',
-  icon: 'i-simple-icons-github',
+  label: 'Repository',
   to: `/app/sites/${props.siteId}/github`,
   active: route.path === `/app/sites/${props.siteId}/github`
 }, {
-  label: 'Pull requests',
-  icon: 'i-lucide-git-pull-request',
-  to: `/app/sites/${props.siteId}/pulls`,
-  active: route.path === `/app/sites/${props.siteId}/pulls`
+  label: 'Settings',
+  to: `/app/sites/${props.siteId}/settings`,
+  active: route.path === `/app/sites/${props.siteId}/settings`
 }]])
 </script>
 

@@ -31,15 +31,16 @@ async function saveOpenAIKey() {
     })
 
     openAIForm.apiKey = ''
-    toast.add({ title: 'OpenAI key saved', color: 'success' })
+    toast.add({ title: 'API key saved', color: 'success' })
   } catch (error: unknown) {
-    toast.add({ title: 'OpenAI key could not be saved', description: getErrorMessage(error), color: 'error' })
+    toast.add({ title: `Couldn't save the key`, description: getErrorMessage(error), color: 'error' })
   } finally {
     savingOpenAIKey.value = false
   }
 }
 
 async function clearOpenAIKey() {
+  if (!window.confirm('Remove the saved API key? Tests will stop working until you add a new one.')) return
   clearingOpenAIKey.value = true
 
   try {
@@ -48,9 +49,9 @@ async function clearOpenAIKey() {
     })
 
     openAIForm.apiKey = ''
-    toast.add({ title: 'OpenAI key removed', color: 'success' })
+    toast.add({ title: 'API key removed', color: 'success' })
   } catch (error: unknown) {
-    toast.add({ title: 'OpenAI key could not be removed', description: getErrorMessage(error), color: 'error' })
+    toast.add({ title: `Couldn't remove the key`, description: getErrorMessage(error), color: 'error' })
   } finally {
     clearingOpenAIKey.value = false
   }
@@ -65,49 +66,32 @@ function getErrorMessage(error: unknown) {
 <template>
   <UDashboardPanel id="setup">
     <template #header>
-      <UDashboardNavbar title="Setup" />
+      <UDashboardNavbar title="Settings" />
     </template>
 
     <template #body>
-      <div class="max-w-3xl space-y-4">
-        <UAlert
-          icon="i-lucide-shield-check"
-          color="primary"
-          variant="subtle"
-          title="Site ownership is required"
-          description="Product Warden only tests websites after the signed-in user proves control of the site with a TXT record or a verification meta tag."
-        />
+      <div class="mx-auto max-w-2xl space-y-10">
+        <PageIntro description="Account-level settings for your workspace. Right now that's just your OpenAI API key — Product Warden uses it to drive each test." />
 
-        <UCard>
-          <template #header>
-            <div class="flex items-start justify-between gap-4">
-              <div>
-                <h2 class="text-base font-semibold">
-                  OpenAI API key
-                </h2>
-                <p class="text-sm text-muted">
-                  Saved keys are encrypted server-side and are never displayed again.
-                </p>
-              </div>
-              <UBadge
-                :color="openAIStatus.configured ? 'success' : 'warning'"
-                variant="subtle"
-                :label="openAIStatus.configured ? 'Saved' : 'Missing'"
-              />
-            </div>
-          </template>
+        <section class="space-y-4">
+          <SectionHeader title="OpenAI API key">
+            <template #actions>
+              <span class="text-sm font-medium" :class="openAIStatus.configured ? 'text-success' : 'text-warning'">
+                {{ openAIStatus.configured ? 'Saved' : 'Not set' }}
+              </span>
+            </template>
+          </SectionHeader>
+
+          <p class="text-sm leading-6 text-muted">
+            Your key is encrypted server-side and never shown again after saving. Tests fail with a clear error if it's missing or revoked.
+          </p>
+
+          <p v-if="openAIStatus.configured && openAIStatus.updated_at" class="text-xs text-muted">
+            Last saved {{ new Date(openAIStatus.updated_at).toLocaleString() }}
+          </p>
 
           <form class="space-y-4" @submit.prevent="saveOpenAIKey">
-            <UAlert
-              v-if="openAIStatus.configured"
-              icon="i-lucide-key-round"
-              color="success"
-              variant="subtle"
-              :title="openAIStatus.updated_at ? `Saved ${new Date(openAIStatus.updated_at).toISOString()}` : 'OpenAI key saved'"
-              description="Enter a new key to replace it, or remove the saved key."
-            />
-
-            <UFormField label="API key" name="apiKey" required>
+            <UFormField :label="openAIStatus.configured ? 'Replace the key' : 'API key'" name="apiKey" required>
               <UInput
                 v-model="openAIForm.apiKey"
                 type="password"
@@ -122,37 +106,49 @@ function getErrorMessage(error: unknown) {
               <UButton
                 v-if="openAIStatus.configured"
                 type="button"
-                icon="i-lucide-trash-2"
                 label="Remove key"
-                color="error"
-                variant="soft"
+                color="neutral"
+                variant="ghost"
                 :loading="clearingOpenAIKey"
                 @click="clearOpenAIKey"
               />
               <UButton
                 type="submit"
-                icon="i-lucide-save"
                 :label="openAIStatus.configured ? 'Replace key' : 'Save key'"
                 :loading="savingOpenAIKey"
               />
             </div>
           </form>
-        </UCard>
+        </section>
 
-        <UCard>
-          <template #header>
-            <h2 class="text-base font-semibold">
-              Required environment
-            </h2>
-          </template>
-          <ul class="list-disc space-y-2 pl-5 text-sm text-muted">
-            <li>Supabase project with GitHub OAuth enabled.</li>
-            <li>GitHub App configured for repository contents write, issues write, and pull requests write permissions.</li>
-            <li>Supabase SQL migration applied and the private screenshot bucket created.</li>
-            <li>Server encryption secret configured for saved OpenAI API keys.</li>
-            <li>Railway deployment using the included Playwright Dockerfile.</li>
+        <section class="space-y-4">
+          <SectionHeader
+            title="What you need to run Product Warden"
+            description="If you're self-hosting, this is the operator checklist."
+          />
+          <ul class="space-y-3 text-sm leading-6 text-muted">
+            <li class="grid gap-3 sm:grid-cols-[20px_1fr]">
+              <span class="text-default">·</span>
+              <span>A Supabase project with GitHub OAuth enabled.</span>
+            </li>
+            <li class="grid gap-3 sm:grid-cols-[20px_1fr]">
+              <span class="text-default">·</span>
+              <span>A GitHub App with contents-write, issues-write, and pull-request-write permissions.</span>
+            </li>
+            <li class="grid gap-3 sm:grid-cols-[20px_1fr]">
+              <span class="text-default">·</span>
+              <span>The Supabase migration applied and the private screenshot bucket created.</span>
+            </li>
+            <li class="grid gap-3 sm:grid-cols-[20px_1fr]">
+              <span class="text-default">·</span>
+              <span>An encryption secret on the server so saved API keys can be stored safely.</span>
+            </li>
+            <li class="grid gap-3 sm:grid-cols-[20px_1fr]">
+              <span class="text-default">·</span>
+              <span>A deploy that includes the Playwright Dockerfile so the browser can launch.</span>
+            </li>
           </ul>
-        </UCard>
+        </section>
       </div>
     </template>
   </UDashboardPanel>

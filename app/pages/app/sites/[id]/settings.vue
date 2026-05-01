@@ -16,9 +16,9 @@ async function verifySite() {
   try {
     await $fetch<Site>(`/api/sites/${siteId.value}/verify`, { method: 'POST' })
     await refresh()
-    toast.add({ title: 'Site verified', description: `${site.value.hostname} is ready for QA runs.`, color: 'success' })
+    toast.add({ title: 'Verified', description: `${site.value.hostname} is ready to test.`, color: 'success' })
   } catch (error: unknown) {
-    toast.add({ title: 'Verification failed', description: getErrorMessage(error), color: 'error' })
+    toast.add({ title: `Couldn't verify ownership`, description: getErrorMessage(error), color: 'error' })
   } finally {
     verifying.value = false
   }
@@ -37,79 +37,81 @@ function getErrorMessage(error: unknown) {
     </template>
 
     <template #body>
-      <div class="grid gap-4 xl:grid-cols-[1fr_380px]">
-        <UCard>
-          <template #header>
-            <h2 class="text-base font-semibold">
-              Site details
-            </h2>
-          </template>
-
-          <div class="grid gap-4 md:grid-cols-2">
-            <UFormField label="Base URL">
-              <UInput :model-value="site?.base_url" readonly class="w-full" />
-            </UFormField>
-            <UFormField label="Hostname">
-              <UInput :model-value="site?.hostname" readonly class="w-full" />
-            </UFormField>
-            <UFormField label="Verification method">
-              <UInput :model-value="site?.verification_method || 'Not verified'" readonly class="w-full" />
-            </UFormField>
-            <UFormField label="Last checked">
-              <UInput :model-value="site?.last_checked_at ? new Date(site.last_checked_at).toLocaleString() : 'Never'" readonly class="w-full" />
-            </UFormField>
-          </div>
-        </UCard>
-
-        <div class="space-y-4">
-          <UCard>
-            <template #header>
-              <h2 class="text-base font-semibold">
-                Verification
-              </h2>
-            </template>
-
-            <div class="space-y-3">
-              <UBadge :color="site?.verified_at ? 'success' : 'warning'" variant="subtle">
-                {{ site?.verified_at ? 'Verified' : 'Pending' }}
-              </UBadge>
-              <p class="text-sm text-muted">
-                {{ site?.verified_at ? 'Runs can start from this site.' : 'Add the verification token from site creation, then check again.' }}
-              </p>
-              <UButton
-                v-if="!site?.verified_at"
-                color="neutral"
-                variant="outline"
-                icon="i-lucide-shield-check"
-                label="Verify again"
-                :loading="verifying"
-                block
-                @click="verifySite"
-              />
+      <div class="mx-auto max-w-3xl space-y-10">
+        <section class="space-y-4">
+          <SectionHeader title="Details" description="What we know about this site." />
+          <dl class="grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2">
+            <div>
+              <dt class="text-xs font-medium text-muted uppercase tracking-wide">
+                Base URL
+              </dt>
+              <dd class="mt-1.5 truncate text-sm text-default">
+                {{ site?.base_url }}
+              </dd>
             </div>
-          </UCard>
-
-          <UCard>
-            <template #header>
-              <h2 class="text-base font-semibold">
-                GitHub
-              </h2>
-            </template>
-            <div class="space-y-3">
-              <p class="text-sm text-muted">
-                {{ site?.github_connection && !site.github_connection.disconnected_at ? site.github_connection.full_name : 'No repository connected.' }}
-              </p>
-              <UButton
-                :to="`/app/sites/${siteId}/github`"
-                color="neutral"
-                variant="outline"
-                icon="i-simple-icons-github"
-                label="GitHub settings"
-                block
-              />
+            <div>
+              <dt class="text-xs font-medium text-muted uppercase tracking-wide">
+                Hostname
+              </dt>
+              <dd class="mt-1.5 truncate text-sm text-default">
+                {{ site?.hostname }}
+              </dd>
             </div>
-          </UCard>
-        </div>
+            <div>
+              <dt class="text-xs font-medium text-muted uppercase tracking-wide">
+                Verified with
+              </dt>
+              <dd class="mt-1.5 text-sm text-default">
+                {{ site?.verification_method === 'meta' ? 'HTML meta tag' : site?.verification_method === 'txt' ? 'DNS TXT record' : 'Not verified' }}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-xs font-medium text-muted uppercase tracking-wide">
+                Last checked
+              </dt>
+              <dd class="mt-1.5 text-sm text-default">
+                {{ site?.last_checked_at ? new Date(site.last_checked_at).toLocaleString() : 'Never' }}
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="space-y-4">
+          <SectionHeader
+            title="Ownership"
+            description="Tests run only against verified hostnames."
+          >
+            <template #actions>
+              <span v-if="site?.verified_at" class="text-sm font-medium text-success">Verified</span>
+              <span v-else class="text-sm font-medium text-warning">Awaiting verification</span>
+            </template>
+          </SectionHeader>
+          <p class="text-sm text-muted">
+            {{ site?.verified_at ? 'This site is good to go. Tests can run anytime.' : 'Re-add the verification token to your site, then check again.' }}
+          </p>
+          <UButton
+            v-if="!site?.verified_at"
+            label="Verify again"
+            :loading="verifying"
+            @click="verifySite"
+          />
+        </section>
+
+        <section class="space-y-4">
+          <SectionHeader
+            title="Repository"
+            description="Connect a GitHub repo so tests can use code context and turn findings into issues or pull requests."
+          />
+          <p class="text-sm text-muted">
+            {{ site?.github_connection && !site.github_connection.disconnected_at ? `Connected: ${site.github_connection.full_name}` : 'No repository connected.' }}
+          </p>
+          <UButton
+            :to="`/app/sites/${siteId}/github`"
+            color="neutral"
+            variant="outline"
+            label="Manage repository"
+          />
+        </section>
       </div>
     </template>
   </UDashboardPanel>

@@ -50,7 +50,7 @@ watchEffect(() => {
 
 async function startRun() {
   if (!form.siteId) {
-    toast.add({ title: 'Choose a verified site', color: 'warning' })
+    toast.add({ title: 'Pick a verified site first', color: 'warning' })
     return
   }
 
@@ -74,7 +74,7 @@ async function startRun() {
 
     await router.push(`/app/runs/${response.id}`)
   } catch (error: unknown) {
-    toast.add({ title: 'Run could not start', description: getErrorMessage(error), color: 'error' })
+    toast.add({ title: `Couldn't start the test`, description: getErrorMessage(error), color: 'error' })
   } finally {
     submitting.value = false
   }
@@ -89,103 +89,133 @@ function getErrorMessage(error: unknown) {
 <template>
   <UDashboardPanel id="new-run">
     <template #header>
-      <UDashboardNavbar title="New run" />
+      <UDashboardNavbar title="Run a test" />
     </template>
 
     <template #body>
-      <div class="grid gap-4 xl:grid-cols-[1fr_380px]">
-        <UCard>
-          <template #header>
-            <div>
-              <h2 class="text-base font-semibold">
-                Customer simulation
-              </h2>
-              <p class="text-sm text-muted">
-                Product Warden will visually inspect the site, act through Playwright, and produce persona reports plus an overarching report.
-              </p>
-            </div>
-          </template>
+      <div class="mx-auto max-w-3xl">
+        <PageIntro description="Tell us which site to test, who's pretending to be a customer, and what they're trying to do. We'll launch a real browser, walk through the goal, and write up what's broken." />
 
-          <form class="space-y-4" @submit.prevent="startRun">
+        <UAlert
+          v-if="!verifiedSites.length"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-shield-alert"
+          title="No verified sites yet"
+          description="Add and verify a site before you can run a test."
+          class="mt-6"
+        >
+          <template #actions>
+            <UButton to="/app/sites/new" label="Add a site" size="sm" />
+          </template>
+        </UAlert>
+
+        <form class="mt-10 space-y-10" @submit.prevent="startRun">
+          <section class="space-y-4">
+            <SectionHeader title="What to test" />
+
             <UFormField label="Site" name="siteId" required>
               <USelect
                 v-model="form.siteId"
                 :items="siteItems"
-                placeholder="Choose a verified site"
+                placeholder="Pick a verified site"
+                size="lg"
                 class="w-full"
               />
             </UFormField>
 
-            <UFormField label="Start URL" name="url">
-              <UInput v-model="form.url" :placeholder="selectedSite?.base_url || 'https://app.example.com/signup'" class="w-full" />
+            <UFormField label="Start URL (optional)" name="url" hint="Defaults to the site's base URL.">
+              <UInput
+                v-model="form.url"
+                :placeholder="selectedSite?.base_url || 'https://app.example.com/signup'"
+                size="lg"
+                class="w-full"
+              />
             </UFormField>
+          </section>
 
-            <UFormField label="Personas" name="personaTemplateIds" required>
-              <div class="grid gap-3 md:grid-cols-2">
-                <label
-                  v-for="template in starterTemplates"
-                  :key="template.id"
-                  class="flex cursor-pointer gap-3 rounded-lg border border-default p-3 transition hover:bg-elevated/50"
-                  :class="form.personaTemplateIds.includes(template.id) ? 'bg-primary/5 ring-1 ring-primary' : ''"
-                >
-                  <input
-                    v-model="form.personaTemplateIds"
-                    type="checkbox"
-                    :value="template.id"
-                    class="mt-1 size-4"
-                  >
-                  <span class="min-w-0">
-                    <span class="block text-sm font-medium">{{ template.name }}</span>
-                    <span class="mt-1 block text-sm text-muted">{{ template.description }}</span>
-                  </span>
-                </label>
-              </div>
-              <div v-if="customTemplates.length" class="mt-3 grid gap-3 md:grid-cols-2">
-                <label
-                  v-for="template in customTemplates"
-                  :key="template.id"
-                  class="flex cursor-pointer gap-3 rounded-lg border border-default p-3 transition hover:bg-elevated/50"
-                  :class="form.personaTemplateIds.includes(template.id) ? 'bg-primary/5 ring-1 ring-primary' : ''"
-                >
-                  <input
-                    v-model="form.personaTemplateIds"
-                    type="checkbox"
-                    :value="template.id"
-                    class="mt-1 size-4"
-                  >
-                  <span class="min-w-0">
-                    <span class="block text-sm font-medium">{{ template.name }}</span>
-                    <span class="mt-1 block text-sm text-muted">{{ template.description || template.role }}</span>
-                  </span>
-                </label>
-              </div>
-              <div class="mt-3 flex justify-between gap-3">
-                <p class="text-sm text-muted">
-                  Select one or more personas. Each selected persona gets its own report.
-                </p>
+          <section class="space-y-4">
+            <SectionHeader
+              title="Who's testing it"
+              description="Each persona writes its own report. Pick one or several."
+            >
+              <template #actions>
                 <UButton
                   to="/app/personas"
                   color="neutral"
                   variant="ghost"
                   size="sm"
-                  icon="i-lucide-settings-2"
-                  label="Manage"
+                  label="Manage personas"
                 />
-              </div>
-            </UFormField>
+              </template>
+            </SectionHeader>
+
+            <div class="grid gap-2 md:grid-cols-2">
+              <label
+                v-for="template in starterTemplates"
+                :key="template.id"
+                class="flex cursor-pointer gap-3 rounded-md border border-default p-3 transition hover:border-primary/40"
+                :class="form.personaTemplateIds.includes(template.id) ? 'border-primary bg-primary/5' : ''"
+              >
+                <input
+                  v-model="form.personaTemplateIds"
+                  type="checkbox"
+                  :value="template.id"
+                  class="mt-0.5 size-4 accent-primary"
+                >
+                <span class="min-w-0">
+                  <span class="block text-sm font-medium text-default">{{ template.name }}</span>
+                  <span class="mt-1 block text-xs leading-5 text-muted">{{ template.description }}</span>
+                </span>
+              </label>
+            </div>
+
+            <div v-if="customTemplates.length" class="grid gap-2 md:grid-cols-2">
+              <label
+                v-for="template in customTemplates"
+                :key="template.id"
+                class="flex cursor-pointer gap-3 rounded-md border border-default p-3 transition hover:border-primary/40"
+                :class="form.personaTemplateIds.includes(template.id) ? 'border-primary bg-primary/5' : ''"
+              >
+                <input
+                  v-model="form.personaTemplateIds"
+                  type="checkbox"
+                  :value="template.id"
+                  class="mt-0.5 size-4 accent-primary"
+                >
+                <span class="min-w-0">
+                  <span class="block text-sm font-medium text-default">{{ template.name }}</span>
+                  <span class="mt-1 block text-xs leading-5 text-muted">{{ template.description || template.role }}</span>
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <section class="space-y-4">
+            <SectionHeader
+              title="What they're trying to do"
+              description="Write it like you'd describe it to a teammate. The more specific, the better the test."
+            />
 
             <UFormField label="Goal" name="goal" required>
               <UTextarea
                 v-model="form.goal"
-                placeholder="Sign up, create a workspace, invite a teammate, and upgrade plan"
+                placeholder="Sign up, create a workspace, invite a teammate, and upgrade to the paid plan."
                 required
                 autoresize
+                size="lg"
                 class="w-full"
               />
             </UFormField>
+          </section>
 
+          <section class="space-y-4">
+            <SectionHeader
+              title="Optional credentials"
+              description="If the journey needs a login, give the test something to use. Otherwise we'll generate a throwaway account."
+            />
             <div class="grid gap-4 md:grid-cols-2">
-              <UFormField label="Test email/username" name="username">
+              <UFormField label="Email or username" name="username">
                 <UInput
                   v-model="form.username"
                   autocomplete="off"
@@ -194,7 +224,7 @@ function getErrorMessage(error: unknown) {
                 />
               </UFormField>
 
-              <UFormField label="Test password" name="password">
+              <UFormField label="Password" name="password">
                 <UInput
                   v-model="form.password"
                   type="password"
@@ -204,81 +234,37 @@ function getErrorMessage(error: unknown) {
                 />
               </UFormField>
             </div>
+          </section>
 
+          <section class="space-y-4">
+            <SectionHeader
+              title="Cap on steps"
+              description="The test stops if it can't finish in this many steps. 20 is usually enough for most journeys."
+            />
             <UFormField label="Max steps" name="maxSteps">
               <UInput
                 v-model.number="form.maxSteps"
                 type="number"
                 min="3"
                 max="40"
-                class="w-full"
+                class="w-32"
               />
             </UFormField>
+          </section>
 
-            <div class="flex justify-end">
-              <UButton
-                type="submit"
-                icon="i-lucide-play"
-                label="Start QA run"
-                :loading="submitting"
-                :disabled="!verifiedSites.length || !form.personaTemplateIds.length"
-              />
-            </div>
-          </form>
-        </UCard>
-
-        <div class="space-y-4">
-          <UAlert
-            icon="i-lucide-shield-check"
-            color="primary"
-            variant="subtle"
-            title="Only verified sites can be tested"
-            description="If the target URL redirects outside the selected site hostname, the run stops."
-          />
-
-          <UCard>
-            <template #header>
-              <h2 class="text-base font-semibold">
-                Ready sites
-              </h2>
-            </template>
-            <div v-if="verifiedSites.length" class="space-y-2">
-              <div v-for="site in verifiedSites" :key="site.id" class="flex items-center gap-2 text-sm">
-                <UIcon name="i-lucide-check" class="size-4 text-success" />
-                <span>{{ site.hostname }}</span>
-              </div>
-            </div>
-            <UAlert
-              v-else
-              color="warning"
-              variant="subtle"
-              icon="i-lucide-triangle-alert"
-              title="No verified sites"
-              description="Add and verify a site before starting a run."
-            />
-            <UButton
-              v-if="!verifiedSites.length"
-              to="/app/sites/new"
-              color="neutral"
-              variant="outline"
-              icon="i-lucide-plus"
-              label="Add site"
-              block
-              class="mt-3"
-            />
-          </UCard>
-
-          <UCard v-if="selectedSite?.github_connection && !selectedSite.github_connection.disconnected_at">
-            <template #header>
-              <h2 class="text-base font-semibold">
-                Repository context
-              </h2>
-            </template>
-            <p class="text-sm text-muted">
-              {{ selectedSite.github_connection.use_repository_context ? selectedSite.github_connection.full_name : 'Repository context is disabled for this site.' }}
+          <div class="flex flex-wrap items-center justify-between gap-3 border-t border-default pt-6">
+            <p class="text-xs text-muted">
+              Tests stop if the browser leaves the verified hostname.
             </p>
-          </UCard>
-        </div>
+            <UButton
+              type="submit"
+              label="Start the test"
+              size="lg"
+              :loading="submitting"
+              :disabled="!verifiedSites.length || !form.personaTemplateIds.length"
+            />
+          </div>
+        </form>
       </div>
     </template>
   </UDashboardPanel>

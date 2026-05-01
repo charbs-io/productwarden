@@ -58,15 +58,16 @@ async function saveTemplate() {
     })
     await refresh()
     resetForm()
-    toast.add({ title: wasEditing ? 'Persona template updated' : 'Persona template created', color: 'success' })
+    toast.add({ title: wasEditing ? 'Persona updated' : 'Persona created', color: 'success' })
   } catch (error: unknown) {
-    toast.add({ title: 'Persona template could not be saved', description: getErrorMessage(error), color: 'error' })
+    toast.add({ title: `Couldn't save the persona`, description: getErrorMessage(error), color: 'error' })
   } finally {
     saving.value = false
   }
 }
 
 async function deleteTemplate(template: PersonaTemplate) {
+  if (!window.confirm(`Delete the "${template.name}" persona?`)) return
   deletingId.value = template.id
 
   try {
@@ -77,9 +78,9 @@ async function deleteTemplate(template: PersonaTemplate) {
     if (editingId.value === template.id) {
       resetForm()
     }
-    toast.add({ title: 'Persona template deleted', color: 'success' })
+    toast.add({ title: 'Persona deleted', color: 'success' })
   } catch (error: unknown) {
-    toast.add({ title: 'Persona template could not be deleted', description: getErrorMessage(error), color: 'error' })
+    toast.add({ title: `Couldn't delete the persona`, description: getErrorMessage(error), color: 'error' })
   } finally {
     deletingId.value = null
   }
@@ -101,115 +102,90 @@ function getErrorMessage(error: unknown) {
 <template>
   <UDashboardPanel id="personas">
     <template #header>
-      <UDashboardNavbar title="Persona templates">
+      <UDashboardNavbar title="Personas">
         <template #right>
-          <UButton to="/app/runs/new" icon="i-lucide-play" label="New run" />
+          <UButton to="/app/runs/new" label="Run a test" />
         </template>
       </UDashboardNavbar>
     </template>
 
     <template #body>
-      <div class="grid gap-4 xl:grid-cols-[1fr_420px]">
-        <div class="space-y-4">
-          <UCard>
-            <template #header>
-              <div>
-                <h2 class="text-base font-semibold">
-                  Starter templates
-                </h2>
-                <p class="text-sm text-muted">
-                  These are available to every run and cannot be edited.
-                </p>
-              </div>
-            </template>
+      <div class="grid gap-10 xl:grid-cols-[1fr_400px]">
+        <div class="min-w-0 space-y-10">
+          <PageIntro description="Personas are who walks your site during a test. Pick from the starters or write your own to focus on a specific kind of user — an accessibility reviewer, a procurement lead, a power user." />
 
-            <div class="grid gap-3 md:grid-cols-2">
-              <div v-for="template in starterTemplates" :key="template.id" class="rounded-lg border border-default p-3">
-                <div class="flex items-start justify-between gap-3">
-                  <div class="min-w-0">
-                    <p class="text-sm font-medium">
-                      {{ template.name }}
-                    </p>
-                    <p class="mt-1 text-sm text-muted">
-                      {{ template.description }}
-                    </p>
-                  </div>
-                  <UBadge color="neutral" variant="subtle">
-                    Starter
-                  </UBadge>
+          <section class="space-y-4">
+            <SectionHeader
+              title="Starter personas"
+              description="Available to every test. You can't edit these."
+            />
+
+            <div class="grid gap-2 md:grid-cols-2">
+              <article v-for="template in starterTemplates" :key="template.id" class="space-y-2 rounded-md border border-default p-4">
+                <div class="flex items-baseline justify-between gap-2">
+                  <h3 class="text-sm font-semibold text-default">
+                    {{ template.name }}
+                  </h3>
+                  <span class="text-xs uppercase tracking-wide text-muted">Starter</span>
                 </div>
-                <ul class="mt-3 space-y-1 text-sm text-muted">
-                  <li v-for="item in template.report_focus" :key="item">
-                    {{ item }}
+                <p class="text-sm leading-6 text-muted">
+                  {{ template.description }}
+                </p>
+                <ul class="space-y-1 pt-1 text-xs text-muted">
+                  <li v-for="item in template.report_focus" :key="item" class="flex gap-2">
+                    <span class="text-default">·</span>
+                    <span>{{ item }}</span>
                   </li>
                 </ul>
-              </div>
+              </article>
             </div>
-          </UCard>
+          </section>
 
-          <UCard>
-            <template #header>
-              <h2 class="text-base font-semibold">
-                Custom templates
-              </h2>
-            </template>
+          <section class="space-y-4">
+            <SectionHeader title="Your personas" />
 
-            <div v-if="customTemplates.length" class="space-y-3">
-              <div v-for="template in customTemplates" :key="template.id" class="rounded-lg border border-default p-3">
-                <div class="flex items-start justify-between gap-3">
-                  <div class="min-w-0">
-                    <p class="text-sm font-medium">
-                      {{ template.name }}
-                    </p>
-                    <p class="mt-1 text-sm text-muted">
-                      {{ template.description || template.role }}
-                    </p>
-                  </div>
-                  <div class="flex gap-1">
-                    <UButton
-                      color="neutral"
-                      variant="ghost"
-                      size="sm"
-                      icon="i-lucide-pencil"
-                      aria-label="Edit persona template"
-                      @click="editTemplate(template)"
-                    />
-                    <UButton
-                      color="error"
-                      variant="ghost"
-                      size="sm"
-                      icon="i-lucide-trash-2"
-                      aria-label="Delete persona template"
-                      :loading="deletingId === template.id"
-                      @click="deleteTemplate(template)"
-                    />
-                  </div>
+            <div v-if="customTemplates.length" class="divide-y divide-default border-y border-default">
+              <article v-for="template in customTemplates" :key="template.id" class="flex items-start justify-between gap-4 py-4">
+                <div class="min-w-0">
+                  <h3 class="text-sm font-semibold text-default">
+                    {{ template.name }}
+                  </h3>
+                  <p class="mt-1 text-sm leading-6 text-muted">
+                    {{ template.description || template.role }}
+                  </p>
                 </div>
-              </div>
+                <div class="flex shrink-0 gap-1">
+                  <UButton
+                    color="neutral"
+                    variant="ghost"
+                    size="sm"
+                    label="Edit"
+                    @click="editTemplate(template)"
+                  />
+                  <UButton
+                    color="neutral"
+                    variant="ghost"
+                    size="sm"
+                    icon="i-lucide-trash-2"
+                    aria-label="Delete persona"
+                    :loading="deletingId === template.id"
+                    @click="deleteTemplate(template)"
+                  />
+                </div>
+              </article>
             </div>
 
-            <UAlert
-              v-else
-              color="neutral"
-              variant="subtle"
-              icon="i-lucide-user-round-plus"
-              title="No custom templates yet"
-              description="Create one when you need a role that is specific to your product or team."
-            />
-          </UCard>
+            <p v-else class="text-sm text-muted">
+              No custom personas yet. Use the form to create one — useful when the starter set doesn't quite match your audience.
+            </p>
+          </section>
         </div>
 
-        <UCard>
-          <template #header>
-            <div>
-              <h2 class="text-base font-semibold">
-                {{ editingTemplate ? 'Edit template' : 'Create template' }}
-              </h2>
-              <p class="text-sm text-muted">
-                Define the role, responsibilities, and report focus used during runs.
-              </p>
-            </div>
-          </template>
+        <aside class="min-w-0 space-y-4">
+          <SectionHeader
+            :title="editingTemplate ? 'Edit persona' : 'Create a persona'"
+            description="Give the test a clear role to play and what to focus on while reviewing."
+          />
 
           <form class="space-y-4" @submit.prevent="saveTemplate">
             <UFormField label="Name" name="name" required>
@@ -221,11 +197,16 @@ function getErrorMessage(error: unknown) {
               />
             </UFormField>
 
-            <UFormField label="Description" name="description">
-              <UInput v-model="form.description" placeholder="Short summary shown in run setup" class="w-full" />
+            <UFormField label="Short description" name="description" hint="Shown when picking personas for a test.">
+              <UInput v-model="form.description" placeholder="Checks keyboard, screen reader, and contrast." class="w-full" />
             </UFormField>
 
-            <UFormField label="Role" name="role" required>
+            <UFormField
+              label="Role"
+              name="role"
+              required
+              hint="The voice the persona uses while testing."
+            >
               <UTextarea
                 v-model="form.role"
                 required
@@ -235,44 +216,53 @@ function getErrorMessage(error: unknown) {
               />
             </UFormField>
 
-            <UFormField label="Responsibilities" name="responsibilities" required>
+            <UFormField
+              label="Responsibilities"
+              name="responsibilities"
+              required
+              hint="One per line. What this persona pays attention to."
+            >
               <UTextarea
                 v-model="form.responsibilities"
                 required
                 autoresize
-                placeholder="One responsibility per line"
+                placeholder="Try every interactive element with the keyboard&#10;Note any focus traps&#10;Flag color combinations that may fail contrast"
                 class="w-full"
               />
             </UFormField>
 
-            <UFormField label="Report focus" name="reportFocus" required>
+            <UFormField
+              label="Report focus"
+              name="reportFocus"
+              required
+              hint="One per line. The findings to call out in the report."
+            >
               <UTextarea
                 v-model="form.reportFocus"
                 required
                 autoresize
-                placeholder="One report focus area per line"
+                placeholder="Keyboard reachability gaps&#10;Screen reader misses&#10;Contrast violations"
                 class="w-full"
               />
             </UFormField>
 
-            <div class="flex justify-end gap-2">
+            <div class="flex justify-end gap-2 pt-2">
               <UButton
                 v-if="editingId"
                 color="neutral"
-                variant="outline"
+                variant="ghost"
                 label="Cancel"
                 @click="resetForm"
               />
               <UButton
                 type="submit"
-                icon="i-lucide-save"
-                :label="editingId ? 'Save changes' : 'Create template'"
+                :label="editingId ? 'Save changes' : 'Create persona'"
                 :loading="saving"
                 :disabled="pending || !readLines(form.responsibilities).length || !readLines(form.reportFocus).length"
               />
             </div>
           </form>
-        </UCard>
+        </aside>
       </div>
     </template>
   </UDashboardPanel>
